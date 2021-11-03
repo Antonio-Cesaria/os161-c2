@@ -33,3 +33,7 @@ options sfs			# Always use the file system
 
 options dumbvm			# Chewing gum and baling wire.
 options syscalls 		# A tons of years to remember to write this..
+
+options fork
+options waitpid
+options file

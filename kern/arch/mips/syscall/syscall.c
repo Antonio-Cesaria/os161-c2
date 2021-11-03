@@ -33,6 +33,7 @@
 #include <lib.h>
 #include <mips/trapframe.h>
 #include <current.h>
+#include <addrspace.h>
 #include <syscall.h>
 
 
@@ -110,14 +111,21 @@ syscall(struct trapframe *tf)
 
 	    /* Add stuff here */
 #if OPT_SYSCALLS
+#if OPT_FILE
 	    case SYS_open:
-	        retval = sys_open((char*)tf->tf_a0,
-				(int)tf->tf_a1,
-				(mode_t)tf->tf_a2);
-		/* error: function not implemented */
-                if (retval<0) err = ENOSYS; 
-		else err = 0;
+	        retval = sys_open((userptr_t)tf->tf_a0,
+				  (int)tf->tf_a1,
+				  (mode_t)tf->tf_a2, &err);
                 break;
+	    case SYS_close:
+	        retval = sys_close((int)tf->tf_a0);
+		if (retval<0) err = ENOENT; 
+                break;
+            case SYS_remove:
+	      /* just ignore: do nothing */
+	        retval = 0;
+                break;
+#endif
 	    case SYS_write:
 	        retval = sys_write((int)tf->tf_a0,
 				(userptr_t)tf->tf_a1,
@@ -126,20 +134,10 @@ syscall(struct trapframe *tf)
                 if (retval<0) err = ENOSYS; 
 		else err = 0;
                 break;
-	    case SYS_close:
-	        retval = sys_close((int)tf->tf_a0);
-		/* error: function not implemented */
-                if (retval<0) err = ENOSYS; 
-		else err = 0;
-                break;
-	    case SYS_remove:
-		err=0;
-                break;
 	    case SYS_read:
 	        retval = sys_read((int)tf->tf_a0,
 				(userptr_t)tf->tf_a1,
 				(size_t)tf->tf_a2);
-		/* error: function not implemented */
                 if (retval<0) err = ENOSYS; 
 		else err = 0;
                 break;
@@ -147,6 +145,25 @@ syscall(struct trapframe *tf)
 	        /* TODO: just avoid crash */
  	        sys__exit((int)tf->tf_a0);
                 break;
+	    case SYS_waitpid:
+	        retval = sys_waitpid((pid_t)tf->tf_a0,
+				(userptr_t)tf->tf_a1,
+				(int)tf->tf_a2);
+                if (retval<0) err = ENOSYS; 
+		else err = 0;
+                break;
+	    case SYS_getpid:
+	        retval = sys_getpid();
+                if (retval<0) err = ENOSYS; 
+		else err = 0;
+                break;
+
+#if OPT_FORK
+	    case SYS_fork:
+	        err = sys_fork(tf,&retval);
+                break;
+#endif
+
 #endif
 
 	    default:
@@ -195,5 +212,22 @@ syscall(struct trapframe *tf)
 void
 enter_forked_process(struct trapframe *tf)
 {
+#if OPT_FORK
+	// Duplicate frame so it's on stack
+	struct trapframe forkedTf = *tf; // copy trap frame onto kernel stack
+
+	kfree(tf); /* work done. now can be freed */
+
+	forkedTf.tf_v0 = 0; // return value is 0
+        forkedTf.tf_a3 = 0; // return with success
+
+	forkedTf.tf_epc += 4; // return to next instruction
+	
+	as_activate();
+
+
+	mips_usermode(&forkedTf);
+#else
 	(void)tf;
+#endif
 }

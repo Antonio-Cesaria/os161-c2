@@ -6,26 +6,239 @@
 
 #include <types.h>
 #include <kern/unistd.h>
-#include <clock.h>
-#include <copyinout.h>
-#include <syscall.h>
-#include <lib.h>
-#include <vfs.h>
-#if OPT_SYSCALLS
-#include <limits.h>
 #include <kern/errno.h>
+#include <clock.h>
+#include <syscall.h>
+#include <current.h>
+#include <lib.h>
+
+#if OPT_FILE
+
+#include <copyinout.h>
+#include <vnode.h>
+#include <vfs.h>
+#include <limits.h>
 #include <uio.h>
 #include <proc.h>
-#include <current.h>
-#include <addrspace.h>
-#include <vnode.h>
-#include <elf.h>
 
+/* max num of system wide open files */
+#define SYSTEM_OPEN_MAX (10*OPEN_MAX)
+
+#define USE_KERNEL_BUFFER 0
+
+/* system open file table */
+struct openfile {
+  struct vnode *vn;
+  off_t offset;	
+  unsigned int countRef;
+};
+
+struct openfile systemFileTable[SYSTEM_OPEN_MAX];
+
+void openfileIncrRefCount(struct openfile *of) {
+  if (of!=NULL)
+    of->countRef++;
+}
+
+#if USE_KERNEL_BUFFER
+
+static int
+file_read(int fd, userptr_t buf_ptr, size_t size) {
+  struct iovec iov;
+  struct uio ku;
+  int result, nread;
+  struct vnode *vn;
+  struct openfile *of;
+  void *kbuf;
+
+  if (fd<0||fd>OPEN_MAX) return -1;
+  of = curproc->fileTable[fd];
+  if (of==NULL) return -1;
+  vn = of->vn;
+  if (vn==NULL) return -1;
+
+  kbuf = kmalloc(size);
+  uio_kinit(&iov, &ku, kbuf, size, of->offset, UIO_READ);
+  result = VOP_READ(vn, &ku);
+  if (result) {
+    return result;
+  }
+  of->offset = ku.uio_offset;
+  nread = size - ku.uio_resid;
+  copyout(kbuf,buf_ptr,nread);
+  kfree(kbuf);
+  return (nread);
+}
+
+static int
+file_write(int fd, userptr_t buf_ptr, size_t size) {
+  struct iovec iov;
+  struct uio ku;
+  int result, nwrite;
+  struct vnode *vn;
+  struct openfile *of;
+  void *kbuf;
+
+  if (fd<0||fd>OPEN_MAX) return -1;
+  of = curproc->fileTable[fd];
+  if (of==NULL) return -1;
+  vn = of->vn;
+  if (vn==NULL) return -1;
+
+  kbuf = kmalloc(size);
+  copyin(buf_ptr,kbuf,size);
+  uio_kinit(&iov, &ku, kbuf, size, of->offset, UIO_WRITE);
+  result = VOP_WRITE(vn, &ku);
+  if (result) {
+    return result;
+  }
+  kfree(kbuf);
+  of->offset = ku.uio_offset;
+  nwrite = size - ku.uio_resid;
+  return (nwrite);
+}
+
+#else
+
+static int
+file_read(int fd, userptr_t buf_ptr, size_t size) {
+  struct iovec iov;
+  struct uio u;
+  int result;
+  struct vnode *vn;
+  struct openfile *of;
+
+  if (fd<0||fd>OPEN_MAX) return -1;
+  of = curproc->fileTable[fd];
+  if (of==NULL) return -1;
+  vn = of->vn;
+  if (vn==NULL) return -1;
+
+  iov.iov_ubase = buf_ptr;
+  iov.iov_len = size;
+
+  u.uio_iov = &iov;
+  u.uio_iovcnt = 1;
+  u.uio_resid = size;          // amount to read from the file
+  u.uio_offset = of->offset;
+  u.uio_segflg =UIO_USERISPACE;
+  u.uio_rw = UIO_READ;
+  u.uio_space = curproc->p_addrspace;
+
+  result = VOP_READ(vn, &u);
+  if (result) {
+    return result;
+  }
+
+  of->offset = u.uio_offset;
+  return (size - u.uio_resid);
+}
+
+static int
+file_write(int fd, userptr_t buf_ptr, size_t size) {
+  struct iovec iov;
+  struct uio u;
+  int result, nwrite;
+  struct vnode *vn;
+  struct openfile *of;
+
+  if (fd<0||fd>OPEN_MAX) return -1;
+  of = curproc->fileTable[fd];
+  if (of==NULL) return -1;
+  vn = of->vn;
+  if (vn==NULL) return -1;
+
+  iov.iov_ubase = buf_ptr;
+  iov.iov_len = size;
+
+  u.uio_iov = &iov;
+  u.uio_iovcnt = 1;
+  u.uio_resid = size;          // amount to read from the file
+  u.uio_offset = of->offset;
+  u.uio_segflg =UIO_USERISPACE;
+  u.uio_rw = UIO_WRITE;
+  u.uio_space = curproc->p_addrspace;
+
+  result = VOP_WRITE(vn, &u);
+  if (result) {
+    return result;
+  }
+  of->offset = u.uio_offset;
+  nwrite = size - u.uio_resid;
+  return (nwrite);
+}
 
 #endif
 
-struct vnode* filetable[OPEN_MAX];
-int n_files=0;
+/*
+ * file system calls for open/close
+ */
+int
+sys_open(userptr_t path, int openflags, mode_t mode, int *errp)
+{
+  int fd, i;
+  struct vnode *v;
+  struct openfile *of=NULL;; 	
+  int result;
+
+  result = vfs_open((char *)path, openflags, mode, &v);
+  if (result) {
+    *errp = ENOENT;
+    return -1;
+  }
+  /* search system open file table */
+  for (i=0; i<SYSTEM_OPEN_MAX; i++) {
+    if (systemFileTable[i].vn==NULL) {
+      of = &systemFileTable[i];
+      of->vn = v;
+      of->offset = 0; // TODO: handle offset with append
+      of->countRef = 1;
+      break;
+    }
+  }
+  if (of==NULL) { 
+    // no free slot in system open file table
+    *errp = ENFILE;
+  }
+  else {
+    for (fd=STDERR_FILENO+1; fd<OPEN_MAX; fd++) {
+      if (curproc->fileTable[fd] == NULL) {
+	curproc->fileTable[fd] = of;
+	return fd;
+      }
+    }
+    // no free slot in process open file table
+    *errp = EMFILE;
+  }
+  
+  vfs_close(v);
+  return -1;
+}
+
+/*
+ * file system calls for open/close
+ */
+int
+sys_close(int fd)
+{
+  struct openfile *of=NULL; 
+  struct vnode *vn;
+
+  if (fd<0||fd>OPEN_MAX) return -1;
+  of = curproc->fileTable[fd];
+  if (of==NULL) return -1;
+  curproc->fileTable[fd] = NULL;
+
+  if (--of->countRef > 0) return 0; // just decrement ref cnt
+  vn = of->vn;
+  of->vn = NULL;
+  if (vn==NULL) return -1;
+
+  vfs_close(vn);	
+  return 0;
+}
+
+#endif
 
 /*
  * simple file system calls for write/read
@@ -35,28 +248,18 @@ sys_write(int fd, userptr_t buf_ptr, size_t size)
 {
   int i;
   char *p = (char *)buf_ptr;
-  int result;
-  struct iovec iov;
-  struct uio ku;
 
-  KASSERT(fd>=0);
-  KASSERT(size>0);
-
-  if(fd == STDOUT_FILENO || fd == STDERR_FILENO){
-    for (i=0; i<(int)size; i++) {
-      putch(p[i]);
-    }
+  if (fd!=STDOUT_FILENO && fd!=STDERR_FILENO) {
+#if OPT_FILE
+    return file_write(fd, buf_ptr, size);
+#else
+    kprintf("sys_write supported only to stdout\n");
+    return -1;
+#endif
   }
-  else{
-    if(filetable[fd] == NULL){
-	kprintf("file not found in read\n");
-  	return -1;
-    }
-    kprintf("TUTTO OK, sto scrivendo su fd=%d\n", fd);
-    uio_kinit(&iov, &ku, p, size, 0, UIO_WRITE);
-    result = VOP_WRITE(filetable[fd], &ku);
-    if(result)
-      return result;
+
+  for (i=0; i<(int)size; i++) {
+    putch(p[i]);
   }
 
   return (int)size;
@@ -67,39 +270,15 @@ sys_read(int fd, userptr_t buf_ptr, size_t size)
 {
   int i;
   char *p = (char *)buf_ptr;
-  int result;
-  struct iovec iov;
-  struct uio ku;
 
-  KASSERT(fd>=0);
-  KASSERT(size>0);
-  
-  if(fd == STDIN_FILENO){
-    for (i=0; i<(int)size; i++) {
-    p[i] = getch();
-    if (p[i] < 0) 
-      return i;
-    }
+  if (fd!=STDIN_FILENO) {
+#if OPT_FILE
+    return file_read(fd, buf_ptr, size);
+#else
+    kprintf("sys_read supported only to stdin\n");
+    return -1;
+#endif
   }
-  else{
-    if(filetable[fd] == NULL){
-	kprintf("file not found in read\n");
-  	return -1;
-    }
-    kprintf("TUTTO OK, sto leggendo da fd=%d\n", fd);
-    uio_kinit(&iov, &ku, buf_ptr, size, 0, UIO_READ);
-    result = VOP_READ(filetable[fd], &ku);
-    if(result)
-      return result;
-  }
-  
-  return (int)size;
-/*
-  
-  char *p = (char *)buf_ptr;
-
-  KASSERT(fd>=0);
-  KASSERT(size>0);
 
   for (i=0; i<(int)size; i++) {
     p[i] = getch();
@@ -107,47 +286,5 @@ sys_read(int fd, userptr_t buf_ptr, size_t size)
       return i;
   }
 
-  return (int)size;*/
-}
-
-int
-sys_open(char* filename, int flags, mode_t mode)
-{
-  int fd=0, err=0;
-  if (filename==NULL) {
-    kprintf("can't open a file from NULL filename\n");
-    return -1;
-  }
-  if(n_files==0){
-    for(int i=0;i<OPEN_MAX;i++){
-      filetable[i]=NULL;
-    }
-  }
-  for(fd=4;fd<OPEN_MAX;fd++){
-    if(filetable[fd]==NULL){
-      err = vfs_open(filename, flags, mode, &filetable[fd]);
-      if(err){
-	kprintf("trying to open a file that does not exists\n");
-	return (int)-1;
-      }
-      kprintf("TUTTO OK, sto aprendo con fd=%d\n", fd);
-      n_files++;
-      return fd;
-    }
-  }
-
-  return (int)-1;
-}
-
-int 
-sys_close(int fd){
-  if(filetable[fd] == NULL){
-	kprintf("nothing to close\n");
-  	return -1;
-  }
-  else{
-    filetable[fd]=NULL;
-    n_files--;
-  }
-  return 0;
+  return (int)size;
 }

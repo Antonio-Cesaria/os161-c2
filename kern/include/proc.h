@@ -37,7 +37,9 @@
  */
 
 #include <spinlock.h>
-#include <synch.h>
+#include <limits.h>
+#include "opt-waitpid.h"
+#include "opt-file.h"
 
 struct addrspace;
 struct thread;
@@ -60,6 +62,13 @@ struct vnode;
  * thread_switch needs to be able to fetch the current address space
  * without sleeping.
  */
+
+#if OPT_WAITPID
+/* G.Cabodi - 2019 - implement waitpid: 
+   synch with semaphore (1) or cond.var.(0) */
+#define USE_SEMAPHORE_FOR_WAITPID 1
+#endif
+
 struct proc {
 	char *p_name;			/* Name of this process */
 	struct spinlock p_lock;		/* Lock for this structure */
@@ -72,9 +81,20 @@ struct proc {
 	struct vnode *p_cwd;		/* current working directory */
 
 	/* add more material here as needed */
-	struct semaphore *end_sem; 	/* semaphore to menage the end */
-	int status; /* exit status for the process */
-	pid_t pid; /* pid of the process */
+#if OPT_WAITPID
+        /* G.Cabodi - 2019 - implement waitpid: synchro, and exit status */
+        int p_status;                   /* status as obtained by exit() */
+        pid_t p_pid;                    /* process pid */
+#if USE_SEMAPHORE_FOR_WAITPID
+	struct semaphore *p_sem;
+#else
+        struct cv *p_cv;
+        struct lock *p_lock;
+#endif
+#endif
+#if OPT_FILE
+        struct openfile *fileTable[OPEN_MAX];
+#endif
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */
@@ -101,6 +121,13 @@ struct addrspace *proc_getas(void);
 /* Change the address space of the current process, and return the old one. */
 struct addrspace *proc_setas(struct addrspace *);
 
-int proc_wait(struct proc*); /* Wait the specified process to terminate */
-struct proc * proc_search_pid(pid_t); /* returns the process related to the given pid */
+/* wait for process termination, and return exit status */
+int proc_wait(struct proc *proc);
+/* get proc from pid */
+struct proc *proc_search_pid(pid_t pid);
+/* signal end/exit of process */
+void proc_signal_end(struct proc *proc);
+#if OPT_FILE
+void proc_file_table_copy(struct proc *psrc, struct proc *pdest);
+#endif
 #endif /* _PROC_H_ */

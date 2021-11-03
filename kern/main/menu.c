@@ -115,7 +115,7 @@ common_prog(int nargs, char **args)
 {
 	struct proc *proc;
 	int result;
-	pid_t child_pid;
+	//pid_t child_pid;
 
 	/* Create a process for the new program to run in. */
 	proc = proc_create_runprogram(args[0] /* name */);
@@ -137,9 +137,9 @@ common_prog(int nargs, char **args)
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.
 	 */
-	child_pid = sys_getpid(proc);
-	result = sys_waitpid(child_pid);
-	//result = proc_wait(proc);
+	//child_pid = sys_getpid();
+	//result = sys_waitpid(child_pid, (userptr_t) proc->p_status, 0);
+	result = proc_wait(proc);
 	kprintf("Process exited with status = %d\n", result);
 	return 0;
 }
