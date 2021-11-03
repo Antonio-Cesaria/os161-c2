@@ -37,7 +37,7 @@
 #include "opt-file.h"
 
 struct trapframe; /* from <machine/trapframe.h> */
-
+struct proc; /* from somewhere */
 /*
  * The system call dispatcher.
  */
@@ -73,6 +73,7 @@ int sys_write(int fd, userptr_t buf_ptr, size_t size);
 int sys_read(int fd, userptr_t buf_ptr, size_t size);
 void sys__exit(int status);
 int sys_waitpid(pid_t pid, userptr_t statusp, int options);
+pid_t sys_getpid2(struct proc* p); 
 pid_t sys_getpid(void);
 #if OPT_FORK
 int sys_fork(struct trapframe *ctf, pid_t *retval);

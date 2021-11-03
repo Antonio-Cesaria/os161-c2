@@ -72,6 +72,17 @@ sys_getpid(void)
 #endif
 }
 
+pid_t
+sys_getpid2(struct proc *p)
+{
+#if OPT_WAITPID
+  KASSERT(p != NULL);
+  return p->p_pid;
+#else
+  return -1;
+#endif
+}
+
 #if OPT_FORK
 static void
 call_enter_forked_process(void *tfv, unsigned long dummy) {
