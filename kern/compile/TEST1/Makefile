@@ -6,7 +6,7 @@ KTOP=../..
 # Top of the whole tree
 TOP=$(KTOP)/..
 # Debug vs. optimize
-KDEBUG=-g -Og
+KDEBUG=-g
 # Name of the kernel config file
 CONFNAME=TEST1
 
