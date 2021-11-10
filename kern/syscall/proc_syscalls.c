@@ -80,6 +80,7 @@ sys_getpid(void)
 }
 
 pid_t
+<<<<<<< HEAD
 sys_getpid2(struct proc* p)
 {
 #if OPT_WAITPID
@@ -87,6 +88,11 @@ sys_getpid2(struct proc* p)
   KASSERT(curproc != NULL);
   return curproc->p_pid;
 */
+=======
+sys_getpid2(struct proc *p)
+{
+#if OPT_WAITPID
+>>>>>>> 94767025a17de2ce5cd08c51f110fb555a7b5ef3
   KASSERT(p != NULL);
   return p->p_pid;
 #else
