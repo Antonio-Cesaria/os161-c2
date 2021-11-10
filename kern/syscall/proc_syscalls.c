@@ -27,7 +27,8 @@
  * system calls for process management
  */
 
-int copyin_args(char*** args, char** uargs);
+int copyin_args(char*** args, char** uargs, int* argc);
+int copyout_args(char** args, vaddr_t *stackptr, int argc);
 
 void
 sys__exit(int status)
@@ -80,7 +81,6 @@ sys_getpid(void)
 }
 
 pid_t
-<<<<<<< HEAD
 sys_getpid2(struct proc* p)
 {
 #if OPT_WAITPID
@@ -88,11 +88,6 @@ sys_getpid2(struct proc* p)
   KASSERT(curproc != NULL);
   return curproc->p_pid;
 */
-=======
-sys_getpid2(struct proc *p)
-{
-#if OPT_WAITPID
->>>>>>> 94767025a17de2ce5cd08c51f110fb555a7b5ef3
   KASSERT(p != NULL);
   return p->p_pid;
 #else
@@ -159,26 +154,92 @@ int sys_fork(struct trapframe *ctf, pid_t *retval) {
   return 0;
 }
 
-int copyin_args(char*** args, char** uargs){
+int copyin_args(char*** args, char** uargs, int *argc){
   
-  int argc=0;
-  int padding=0;
+  
+  //int padding=0;
   char **kargs;
+  size_t count;
 
-  while(uargs[argc] != NULL)
-    argc++;
+  while(uargs[*argc] != NULL)
+    (*argc)++;
   //argc = sizeof(args)/sizeof(char*);
-  kargs = (char**)kmalloc(argc * sizeof(char*));
+  kargs = (char**) kmalloc(*argc * sizeof(char*));
 
-  for(int i=0;i<argc;i++){
-    padding = 4 - (strlen(uargs[i])%4);
-    kargs[i] = (char*) kmalloc((strlen(uargs[i])+padding) * sizeof(char));
-    kprintf("lunghezza %d\n", strlen(uargs[i]));
-    memcpy(kargs[i], uargs[i], strlen(uargs[i]));
-    for(int j=0;j<padding;j++)
-      kargs[i][strlen(uargs[i])+j] = '\0';
+  for(int i=0;i<(*argc);i++){
+    /*padding = 4 - (strlen(uargs[i])%4);*/
+    kargs[i] = (char*) kmalloc((strlen(uargs[i])+1) * sizeof(char));
+    //kprintf("lunghezza %d\n", strlen(uargs[i]));
+    //memcpy(kargs[i], uargs[i], strlen(uargs[i]));
+    copyinstr((userptr_t) uargs[i], kargs[i], strlen(uargs[i])+1, &count);
+    if(count != (strlen(uargs[i])+1))
+      panic("Copied wrong number of bytes!\n");
+    /*for(int j=0;j<padding;j++)
+      kargs[i][strlen(uargs[i])+j] = '\0';*/
   }
   *args = kargs;
+  return 0;
+}
+
+int copyout_args(char** argv, vaddr_t *stackptr, int argc){
+  /*
+  1 - calcolare dimensione totale della matrice (NB considerando le sringhe paddate!!!!!)
+  1a - Costruire un vettore contenente i padding di ogni stringa
+  2 - decrementare stackptr in base alla size totale (NB anche i puntatori)
+  3 - pushare nello stackptr aggiornato PRIMA i puntatori, POI le stringhe paddate a multipli di 4
+      (MIPS accetta parametri allineati a multipli di 4 byte!!)
+  */
+  size_t size=0;
+  int i, j;
+  size_t cnt;
+  char term = '\0';
+  int *padding = (int*) kmalloc(argc * sizeof(int)); //vettore padding stringhe
+  char **ptr;
+  
+  (void)stackptr;
+
+  for(i=0;i<argc;i++){
+    size += (strlen(argv[i])+1); //1 per terminatore \0
+    padding[i] = 4 - ( (strlen(argv[i]) % 4 )+1); //calcolo del padding necessario
+    size += padding[i]; 
+    size += sizeof(argv[i]); //per il puntatore alla stringa
+    /*kprintf("padding[%d] = %d\n", i, padding[i]);
+    kprintf("Size alla posizione %d = %d\n", i, size);*/
+  }
+  size += sizeof(char*); //NULL pointer to end args list
+  // kprintf("Size totale = %d\n", size);
+  *stackptr -= size;
+  kprintf("stackptr = %8x\n", (int) *stackptr);
+  int current_str_len=0;
+  for(i=0;i<argc;i++){
+    ptr = (char**) (*stackptr + (argc + 1 - i) * 4 + current_str_len);
+    current_str_len += (strlen(argv[i])+padding[i]+1);
+    copyout((void*)&ptr, (userptr_t) *stackptr, sizeof(char*));
+    *stackptr += sizeof(char*);
+  }
+  ptr = NULL;
+  copyout((void*)&ptr, (userptr_t) *stackptr, sizeof(char*));
+  *stackptr += sizeof(char*);
+
+  //inserimento delle stringhe nello stack
+  for(i=0;i<argc;i++){
+    copyoutstr(argv[i], (userptr_t) *stackptr, strlen(argv[i])+1, &cnt);
+    if(cnt != (strlen(argv[i])+1))
+      panic("Copied wrong number of bytes!\n");
+    *stackptr += (strlen(argv[i]) + 1);
+    for(j=0;j<padding[i];j++){
+      copyout(&term, (userptr_t) *stackptr, sizeof(char));
+      *stackptr += sizeof(char);
+    }
+  }
+
+  *stackptr -= size;
+  
+  char** args = (char**) *stackptr;
+  kprintf("nome prg = %s\n", args[0]);
+  kprintf("nome primo param = %s\n", args[1]);
+  kprintf("NULL = %s\n", args[argc]);
+  
   return 0;
 }
 
@@ -200,7 +261,7 @@ int sys_execv(char* prgname, char** args){
 	struct vnode *v;
 	vaddr_t entrypoint, stackptr;
 	int result;
-  char* progname = NULL;
+  //char* progname = NULL;
   char** argv = NULL;
   int argc=0;
 
@@ -216,16 +277,17 @@ int sys_execv(char* prgname, char** args){
   strcpy(progname, prgname);
   */
   (void)prgname;
-  copyin_args(&argv, args);
+  copyin_args(&argv, args, &argc);
 
-  kprintf("primo argomento: %s\n", (char*)args[1]);
+  kprintf("primo argomento: %s\n", (char*)argv[1]);
+  kprintf("secondo argomento: %s\n", (char*)argv[2]);
 
   as = proc_setas(NULL);
 	as_deactivate();
   as_destroy(as);
 
 	/* Open the file. */
-	result = vfs_open(progname, O_RDONLY, 0, &v);
+	result = vfs_open(argv[0], O_RDONLY, 0, &v);
 	if (result) {
 		return result;
 	}
@@ -265,8 +327,15 @@ int sys_execv(char* prgname, char** args){
   kprintf("primo argomento: %s\n", (char*)argv[1]);
 
 	/* Warp to user mode. */
-	
-  enter_new_process(argc /*argc*/, (userptr_t) argv /*userspace addr of argv*/,
+
+	//COPYOUT!!!!!!!
+  /*
+  COPIARE ARGOMENTI (argv) NELLO USER STACK DEL NUOVO ADDRESS SPACE
+  */
+  copyout_args(argv, &stackptr, argc);
+  kprintf("stackptr = %8x\n", (int) stackptr);
+
+  enter_new_process(argc /*argc*/, (userptr_t) stackptr /*userspace addr of argv*/,
 			  NULL /*userspace addr of environment*/,
 			  stackptr, entrypoint);
 
