@@ -137,7 +137,7 @@ common_prog(int nargs, char **args)
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.
 	 */
-	//child_pid = sys_getpid();
+	//child_pid = sys_getpid2(proc);
 	//result = sys_waitpid(child_pid, (userptr_t) proc->p_status, 0);
 	result = proc_wait(proc);
 	kprintf("Process exited with status = %d\n", result);

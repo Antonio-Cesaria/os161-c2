@@ -38,6 +38,8 @@
 
 struct trapframe; /* from <machine/trapframe.h> */
 
+struct proc; /* from somewhere */
+
 /*
  * The system call dispatcher.
  */
@@ -74,8 +76,10 @@ int sys_read(int fd, userptr_t buf_ptr, size_t size);
 void sys__exit(int status);
 int sys_waitpid(pid_t pid, userptr_t statusp, int options);
 pid_t sys_getpid(void);
+pid_t sys_getpid2(struct proc* p);
 #if OPT_FORK
 int sys_fork(struct trapframe *ctf, pid_t *retval);
+int sys_execv(char *prgname, char **args);
 #endif
 
 #endif
