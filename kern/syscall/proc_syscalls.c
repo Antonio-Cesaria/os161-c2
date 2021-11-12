@@ -18,10 +18,12 @@
 #include <mips/trapframe.h>
 #include <current.h>
 #include <synch.h>
+#include <kern/stattypes.h>
 #include <test.h>
 #include <vfs.h>
 #include <vm.h>
 #include <kern/fcntl.h>
+#include <vnode.h>
 
 /*
  * system calls for process management
@@ -156,72 +158,74 @@ int sys_fork(struct trapframe *ctf, pid_t *retval) {
 
 int copyin_args(char*** args, char** uargs, int *argc){
   
-  
-  //int padding=0;
   char **kargs;
   size_t count;
 
+  //counting number of incoming arguments
   while(uargs[*argc] != NULL)
     (*argc)++;
-  //argc = sizeof(args)/sizeof(char*);
+  
   kargs = (char**) kmalloc(*argc * sizeof(char*));
 
+  //loop for copying incoming arguments from user space to kernel space
   for(int i=0;i<(*argc);i++){
-    /*padding = 4 - (strlen(uargs[i])%4);*/
     kargs[i] = (char*) kmalloc((strlen(uargs[i])+1) * sizeof(char));
-    //kprintf("lunghezza %d\n", strlen(uargs[i]));
-    //memcpy(kargs[i], uargs[i], strlen(uargs[i]));
     copyinstr((userptr_t) uargs[i], kargs[i], strlen(uargs[i])+1, &count);
+    //checks right number of bytes have been copied
     if(count != (strlen(uargs[i])+1))
       panic("Copied wrong number of bytes!\n");
-    /*for(int j=0;j<padding;j++)
-      kargs[i][strlen(uargs[i])+j] = '\0';*/
   }
   *args = kargs;
+
   return 0;
 }
 
 int copyout_args(char** argv, vaddr_t *stackptr, int argc){
   /*
+  dev notes
   1 - calcolare dimensione totale della matrice (NB considerando le sringhe paddate!!!!!)
   1a - Costruire un vettore contenente i padding di ogni stringa
   2 - decrementare stackptr in base alla size totale (NB anche i puntatori)
   3 - pushare nello stackptr aggiornato PRIMA i puntatori, POI le stringhe paddate a multipli di 4
       (MIPS accetta parametri allineati a multipli di 4 byte!!)
   */
+
   size_t size=0;
   int i, j;
   size_t cnt;
   char term = '\0';
-  int *padding = (int*) kmalloc(argc * sizeof(int)); //vettore padding stringhe
+  int *padding = (int*) kmalloc(argc * sizeof(int)); //string padding array
   char **ptr;
   
   (void)stackptr;
 
   for(i=0;i<argc;i++){
-    size += (strlen(argv[i])+1); //1 per terminatore \0
-    padding[i] = 4 - ( (strlen(argv[i]) % 4 )+1); //calcolo del padding necessario
+    size += (strlen(argv[i])+1); //+1 for \0 string terminator
+    padding[i] = 4 - ( (strlen(argv[i]) % 4 )+1); //computing necessary padding
     size += padding[i]; 
-    size += sizeof(argv[i]); //per il puntatore alla stringa
-    /*kprintf("padding[%d] = %d\n", i, padding[i]);
-    kprintf("Size alla posizione %d = %d\n", i, size);*/
+    size += sizeof(argv[i]); //for string pointer
   }
   size += sizeof(char*); //NULL pointer to end args list
-  // kprintf("Size totale = %d\n", size);
-  *stackptr -= size;
-  kprintf("stackptr = %8x\n", (int) *stackptr);
-  int current_str_len=0;
+  
+  /*decrementing stackptr in order to align to the correct byte where the data
+  structure for the arguments will be placed */
+  *stackptr -= size; 
+
+  /*
+  Loop for copying string pointers into user space stack (included NULL last pointer)
+  */
+  int current_str_len=0; 
   for(i=0;i<argc;i++){
     ptr = (char**) (*stackptr + (argc + 1 - i) * 4 + current_str_len);
     current_str_len += (strlen(argv[i])+padding[i]+1);
     copyout((void*)&ptr, (userptr_t) *stackptr, sizeof(char*));
     *stackptr += sizeof(char*);
   }
-  ptr = NULL;
+  ptr = NULL; //last string pointer
   copyout((void*)&ptr, (userptr_t) *stackptr, sizeof(char*));
   *stackptr += sizeof(char*);
 
-  //inserimento delle stringhe nello stack
+  //pushing the strings (arguments) in the correct order with correct padding into the stack
   for(i=0;i<argc;i++){
     copyoutstr(argv[i], (userptr_t) *stackptr, strlen(argv[i])+1, &cnt);
     if(cnt != (strlen(argv[i])+1))
@@ -233,64 +237,51 @@ int copyout_args(char** argv, vaddr_t *stackptr, int argc){
     }
   }
 
+  //updating stackptr
   *stackptr -= size;
-  
-  char** args = (char**) *stackptr;
-  kprintf("nome prg = %s\n", args[0]);
-  kprintf("nome primo param = %s\n", args[1]);
-  kprintf("NULL = %s\n", args[argc]);
-  
+  kfree(padding);
+
   return 0;
 }
 
-int sys_execv(char* prgname, char** args){
-  /*struct addrspace *as;
-  struct proc *c = curproc;
-  char *to_pass;
-  (void)c;
-  kprintf("progname: %s\n", progname);
-  to_pass = (char*)kmalloc(strlen(progname) * sizeof(char));
-  strcpy(to_pass, progname);
-  as = proc_setas(NULL);
-	as_deactivate();
-  as_destroy(as);
-  (void)progname;
-  runprogram(to_pass);*/
-
-  struct addrspace *as;
+int sys_execv(char* progname, char** args){
+  
+  struct addrspace *as, *as_old;
 	struct vnode *v;
 	vaddr_t entrypoint, stackptr;
 	int result;
-  //char* progname = NULL;
   char** argv = NULL;
   int argc=0;
 
-  /*progname = (char*)kmalloc(strlen(prgname) * sizeof(char));
-  while(args[argc] != NULL)
-    argc++;
-  //argc = sizeof(args)/sizeof(char*);
-  argv = (char**)kmalloc(argc * sizeof(char*));
-  for(int i=0;i<argc;i++){
-    argv[i] = (char*) kmalloc(strlen(args[i]) * sizeof(char));
-    strcpy(argv[i], args[i]);
-  }
-  strcpy(progname, prgname);
-  */
-  (void)prgname;
+  /* parameter is unused beacuse progname is yet present in args array (args[0]) */
+  (void)progname;
+
+  /* copy program arguments from user space to kernel space */
   copyin_args(&argv, args, &argc);
 
-  kprintf("primo argomento: %s\n", (char*)argv[1]);
-  kprintf("secondo argomento: %s\n", (char*)argv[2]);
-
-  as = proc_setas(NULL);
+  /* detach and destroy the current address space */
+  as_old = proc_setas(NULL);
 	as_deactivate();
-  as_destroy(as);
+  
 
-	/* Open the file. */
+	/* Open the file of the executable. */
 	result = vfs_open(argv[0], O_RDONLY, 0, &v);
 	if (result) {
+    for(int i=0;i<argc;i++)
+      kfree(argv[i]);
+    kfree(argv);
+
+    proc_setas(as_old);
+    as_activate();
+    //vfs_close(v);
 		return result;
 	}
+
+  /*int (*vop_gettype)(struct vnode *object, mode_t *result);*/
+  /*result = VOP_GETTYPE(v, &file_or_dir);
+  if(result){
+    return result;
+  }*/
 
 	/* We should be a new process. */
 	KASSERT(proc_getas() == NULL);
@@ -310,7 +301,16 @@ int sys_execv(char* prgname, char** args){
 	result = load_elf(v, &entrypoint);
 	if (result) {
 		/* p_addrspace will go away when curproc is destroyed */
-		vfs_close(v);
+    for(int i=0;i<argc;i++)
+      kfree(argv[i]);
+    kfree(argv);
+
+    as_deactivate();
+    as_destroy(as);
+    proc_setas(as_old);
+    as_activate();
+
+    vfs_close(v);
 		return result;
 	}
 
@@ -324,17 +324,11 @@ int sys_execv(char* prgname, char** args){
 		return result;
 	}
 
-  kprintf("primo argomento: %s\n", (char*)argv[1]);
-
-	/* Warp to user mode. */
-
-	//COPYOUT!!!!!!!
-  /*
-  COPIARE ARGOMENTI (argv) NELLO USER STACK DEL NUOVO ADDRESS SPACE
-  */
+  /* copying program arguments back from kernel space to user space (new address space) */
   copyout_args(argv, &stackptr, argc);
-  kprintf("stackptr = %8x\n", (int) stackptr);
-
+  
+  as_destroy(as);
+  /* launch the new process */
   enter_new_process(argc /*argc*/, (userptr_t) stackptr /*userspace addr of argv*/,
 			  NULL /*userspace addr of environment*/,
 			  stackptr, entrypoint);
