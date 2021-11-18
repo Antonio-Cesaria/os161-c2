@@ -18,7 +18,7 @@
 #include <mips/trapframe.h>
 #include <current.h>
 #include <synch.h>
-#include <kern/stattypes.h>
+/*#include <kern/stattypes.h>*/
 #include <test.h>
 #include <vfs.h>
 #include <vm.h>
@@ -259,10 +259,10 @@ int sys_execv(char* progname, char** args){
   /* copy program arguments from user space to kernel space */
   copyin_args(&argv, args, &argc);
 
-  /* detach and destroy the current address space */
+  /* detach the current address space */
   as_old = proc_setas(NULL);
 	as_deactivate();
-  
+  //as_destroy(as_old);
 
 	/* Open the file of the executable. */
 	result = vfs_open(argv[0], O_RDONLY, 0, &v);
@@ -284,18 +284,18 @@ int sys_execv(char* progname, char** args){
   }*/
 
 	/* We should be a new process. */
-	KASSERT(proc_getas() == NULL);
-
-	/* Create a new address space. */
+	KASSERT(proc_getas() == NULL);	
+	
+  /* Create a new address space. */
 	as = as_create();
 	if (as == NULL) {
 		vfs_close(v);
 		return ENOMEM;
 	}
 
-	/* Switch to it and activate it. */
-	proc_setas(as);
-	as_activate();
+  /* Switch to it and activate it. */
+  proc_setas(as);
+  as_activate();
 
 	/* Load the executable. */
 	result = load_elf(v, &entrypoint);
@@ -327,7 +327,8 @@ int sys_execv(char* progname, char** args){
   /* copying program arguments back from kernel space to user space (new address space) */
   copyout_args(argv, &stackptr, argc);
   
-  as_destroy(as);
+  as_destroy(as_old);
+
   /* launch the new process */
   enter_new_process(argc /*argc*/, (userptr_t) stackptr /*userspace addr of argv*/,
 			  NULL /*userspace addr of environment*/,
