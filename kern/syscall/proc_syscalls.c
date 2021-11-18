@@ -18,7 +18,7 @@
 #include <mips/trapframe.h>
 #include <current.h>
 #include <synch.h>
-/*#include <kern/stattypes.h>*/
+#include <stat.h>
 #include <test.h>
 #include <vfs.h>
 #include <vm.h>
@@ -252,16 +252,19 @@ int sys_execv(char* progname, char** args){
 	int result;
   char** argv = NULL;
   int argc=0;
+  struct proc *p = curproc;
+
+  mode_t file_or_dir;
 
   /* parameter is unused beacuse progname is yet present in args array (args[0]) */
   (void)progname;
-
+  (void)p;
   /* copy program arguments from user space to kernel space */
   copyin_args(&argv, args, &argc);
 
   /* detach the current address space */
   as_old = proc_setas(NULL);
-	as_deactivate();
+  as_deactivate();
   //as_destroy(as_old);
 
 	/* Open the file of the executable. */
@@ -272,16 +275,19 @@ int sys_execv(char* progname, char** args){
     kfree(argv);
 
     proc_setas(as_old);
-    as_activate();
-    //vfs_close(v);
+    //as_activate();
+
 		return result;
 	}
 
-  /*int (*vop_gettype)(struct vnode *object, mode_t *result);*/
-  /*result = VOP_GETTYPE(v, &file_or_dir);
-  if(result){
-    return result;
-  }*/
+  result = VOP_GETTYPE(v, &file_or_dir);
+  if(file_or_dir == S_IFDIR){
+    for(int i=0;i<argc;i++)
+      kfree(argv[i]);
+    kfree(argv);
+    proc_setas(as_old);
+    return EISDIR;
+  }
 
 	/* We should be a new process. */
 	KASSERT(proc_getas() == NULL);	
@@ -294,8 +300,9 @@ int sys_execv(char* progname, char** args){
 	}
 
   /* Switch to it and activate it. */
-  proc_setas(as);
+  
   as_activate();
+  proc_setas(as);
 
 	/* Load the executable. */
 	result = load_elf(v, &entrypoint);
@@ -307,8 +314,9 @@ int sys_execv(char* progname, char** args){
 
     as_deactivate();
     as_destroy(as);
-    proc_setas(as_old);
-    as_activate();
+
+    proc_setas(as_old); 
+    //as_activate();
 
     vfs_close(v);
 		return result;
