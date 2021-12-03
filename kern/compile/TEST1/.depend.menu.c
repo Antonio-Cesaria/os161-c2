@@ -12,5 +12,6 @@ menu.o: ../../main/menu.c ../../include/types.h \
  ../../include/proc.h opt-waitpid.h opt-file.h ../../include/vfs.h \
  ../../include/sfs.h ../../include/fs.h ../../include/vnode.h \
  ../../include/kern/sfs.h ../../include/syscall.h opt-syscalls.h \
- opt-fork.h ../../include/test.h opt-sfs.h opt-net.h ../../include/vm.h \
- includelinks/machine/vm.h
+ opt-fork.h ../../include/stat.h ../../include/kern/stat.h \
+ ../../include/kern/stattypes.h ../../include/test.h opt-sfs.h opt-net.h \
+ ../../include/vm.h includelinks/machine/vm.h

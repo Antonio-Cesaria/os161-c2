@@ -21,17 +21,25 @@
 #include <uio.h>
 #include <proc.h>
 
+#include <synch.h>
+
 /* max num of system wide open files */
 #define SYSTEM_OPEN_MAX (10*OPEN_MAX)
+
+#define SEEK_SET      0      /* Seek relative to beginning of file */
+#define SEEK_CUR      1      /* Seek relative to current position in file */
+#define SEEK_END      2      /* Seek relative to end of file */
 
 #define USE_KERNEL_BUFFER 0
 
 /* system open file table */
+/*
 struct openfile {
   struct vnode *vn;
   off_t offset;	
   unsigned int countRef;
 };
+*/
 
 struct openfile systemFileTable[SYSTEM_OPEN_MAX];
 
@@ -39,6 +47,8 @@ void openfileIncrRefCount(struct openfile *of) {
   if (of!=NULL)
     of->countRef++;
 }
+
+int file_get(struct proc *p, int fd, struct openfile **f );
 
 #if USE_KERNEL_BUFFER
 
@@ -258,10 +268,13 @@ sys_write(int fd, userptr_t buf_ptr, size_t size)
 #endif
   }
 
-  for (i=0; i<(int)size; i++) {
-    putch(p[i]);
+  if(curproc->fileTable[fd]==NULL){
+    for (i=0; i<(int)size; i++) {
+      putch(p[i]);
+    }
   }
-
+  else
+    return file_write(fd, buf_ptr, size);
   return (int)size;
 }
 
@@ -271,7 +284,7 @@ sys_read(int fd, userptr_t buf_ptr, size_t size)
   int i;
   char *p = (char *)buf_ptr;
 
-  if (fd!=STDIN_FILENO) {
+  if (fd != STDIN_FILENO) {
 #if OPT_FILE
     return file_read(fd, buf_ptr, size);
 #else
@@ -280,11 +293,152 @@ sys_read(int fd, userptr_t buf_ptr, size_t size)
 #endif
   }
 
-  for (i=0; i<(int)size; i++) {
-    p[i] = getch();
-    if (p[i] < 0) 
-      return i;
+  if(curproc->fileTable[fd] == NULL){
+    for (i=0; i<(int)size; i++) {
+      p[i] = getch();
+      if (p[i] < 0) 
+        return i;
+    }
+  }
+  else{
+    return file_read(fd, buf_ptr, size);
   }
 
   return (int)size;
+}
+
+int sys_fstat (int fd, struct stat *buf){
+  (void)fd;
+  (void)buf;
+  return 0;
+}
+
+int sys_dup2(int oldfd,int newfd, int *retval){
+
+    struct openfile * old_open;
+    struct openfile * new_open;
+    //struct lock *dup2_lock;
+    struct proc *p = curproc;
+    (void)p;
+
+    if(oldfd<0)
+        return EBADF;
+    if(oldfd>=OPEN_MAX)
+        return EBADF;
+    if(newfd<0)
+        return EBADF;
+    if(newfd >= OPEN_MAX)
+        return EBADF;
+      
+
+    //dup2_lock = lock_create("dup2_lock");
+    //lock_acquire(dup2_lock);
+
+    old_open=curproc->fileTable[oldfd];
+
+    if(old_open==NULL)
+        return EBADF;
+
+    if(curproc->fileTable[newfd]!=NULL){
+    //chiudo il newfd
+    curproc->fileTable[newfd]->countRef--;
+    VOP_DECREF(curproc->fileTable[newfd]->vn);
+
+    //controllo che sia l'ultimo ???
+
+    }
+
+    new_open=old_open;
+
+    curproc->fileTable[newfd]=new_open;
+    curproc->fileTable[newfd]->countRef++;
+    VOP_INCREF(old_open->vn);
+
+
+    *retval=newfd;
+
+    //lock_release(dup2_lock);
+
+    return 0;
+
+}
+
+/*
+ * find and return the file associated with the filedescriptor
+ * inside the process. it will be returned locked.
+*/
+
+int file_get(struct proc *p, int fd, struct openfile **f ) {
+    if( fd >= OPEN_MAX || fd < 0 )
+        return EBADF;
+
+    //lock(p->lock_fd)
+    if( p->fileTable[fd] != NULL ) { 
+        *f = p->fileTable[fd];
+        //lock(f->lock) (?)
+        //unlock(p->lock_fd)
+        return 0;
+    }
+
+    //unlock(p->lock_fd)
+    return EBADF;
+}
+
+int sys_lseek( int fd, off_t offset, int whence, int64_t *retval ) {
+  struct proc        *p = NULL;
+  struct openfile        *f = NULL;
+  int            err;
+  struct stat        st;
+  off_t            new_offset;
+
+  KASSERT( curthread != NULL );
+  KASSERT( curthread->t_proc != NULL );
+
+  p = curthread->t_proc;
+
+  //try to open the file
+  err = file_get( p, fd, &f );
+  if( err )
+    return err;
+
+  //depending on whence, seek to appropriate location
+  switch( whence ) {
+    case SEEK_SET:
+      new_offset = offset;
+      break;
+
+    case SEEK_CUR:
+      new_offset = f->offset + offset;
+      break;
+
+    case SEEK_END:
+      //if it is SEEK_END, we use VOP_STAT to figure out
+      //the size of the file, and set the offset to be that size.
+      err = VOP_STAT( f->vn, &st );
+      if( err ) {
+        //F_UNLOCK( f );
+        return err;
+      }
+
+      //set the offet to the filesize.
+      new_offset = st.st_size + offset;
+      break;
+    default:
+      //F_UNLOCK( f );
+      return EINVAL;
+  }
+
+  //use VOP_TRYSEEK to verify whether the desired
+  //seeking location is proper.
+  //da gestire meglio
+  if(VOP_ISSEEKABLE( f->vn))
+  {
+
+    //adjust the seek.
+    f->offset = new_offset;
+    *retval = new_offset;
+    //F_UNLOCK( f );
+    return 0;
+  }
+  return ESPIPE;
 }

@@ -35,6 +35,7 @@
 #include "opt-syscalls.h"
 #include "opt-fork.h"
 #include "opt-file.h"
+#include <stat.h>
 
 struct trapframe; /* from <machine/trapframe.h> */
 
@@ -66,10 +67,16 @@ int sys_reboot(int code);
 int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
 #if OPT_SYSCALLS
 #if OPT_FILE
-struct openfile;
+//struct openfile;
+struct openfile {
+  struct vnode *vn;
+  off_t offset;	
+  unsigned int countRef;
+};
 void openfileIncrRefCount(struct openfile *of);
 int sys_open(userptr_t path, int openflags, mode_t mode, int *errp);
 int sys_close(int fd);
+int sys_lseek( int fd, off_t offset, int whence, int64_t *retval );
 #endif
 int sys_write(int fd, userptr_t buf_ptr, size_t size);
 int sys_read(int fd, userptr_t buf_ptr, size_t size);
@@ -80,6 +87,15 @@ pid_t sys_getpid2(struct proc* p);
 #if OPT_FORK
 int sys_fork(struct trapframe *ctf, pid_t *retval);
 int sys_execv(char *progname, char **args);
+int sys_fstat (int fd, struct stat *buf);
+int sys___getcwd(userptr_t buf, size_t size, int *retval);
+int sys_chdir(userptr_t dir);
+int sys_mkdir(userptr_t dir, mode_t mode);
+int sys_rmdir(userptr_t dir);
+int sys_getdirentry(int fd, userptr_t buf, size_t buflen);
+
+int sys_dup2(int oldfd,int newfd, int *retval);
+
 #endif
 
 #endif

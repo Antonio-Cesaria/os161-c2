@@ -4,6 +4,9 @@
         "lib.h": "c",
         "opt-noasserts.h": "c",
         "version.h": "c",
-        "fcntl.h": "c"
-    }
+        "fcntl.h": "c",
+        "functional": "c",
+        "synch.h": "c"
+    },
+    "C_Cpp.dimInactiveRegions": false
 }

@@ -13,5 +13,6 @@ main.o: ../../main/main.c ../../include/types.h \
  ../../include/synch.h opt-locksem.h ../../include/wchan.h \
  ../../include/vm.h includelinks/machine/vm.h ../../include/mainbus.h \
  ../../include/vfs.h ../../include/device.h ../../include/syscall.h \
- opt-syscalls.h opt-fork.h ../../include/test.h ../../include/version.h \
- autoconf.h ../../include/hello.h opt-hello.h
+ opt-syscalls.h opt-fork.h ../../include/stat.h ../../include/kern/stat.h \
+ ../../include/kern/stattypes.h ../../include/test.h \
+ ../../include/version.h autoconf.h ../../include/hello.h opt-hello.h

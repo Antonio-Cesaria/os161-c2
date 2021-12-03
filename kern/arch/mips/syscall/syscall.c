@@ -35,7 +35,11 @@
 #include <current.h>
 #include <addrspace.h>
 #include <syscall.h>
+#include <copyinout.h>
 
+#define MAKE_64BIT(x,y) (((int64_t)x) << 32 | y)
+#define GET_LO(x) ((int32_t) x & 0x00000000FFFFFFFF)
+#define GET_HI(x) ((int32_t) x & 0xFFFFFFFF00000000)
 
 /*
  * System call dispatcher.
@@ -82,6 +86,10 @@ syscall(struct trapframe *tf)
 	int32_t retval;
 	int err=0;
 
+	int64_t retval64;
+    int lseek_whence;
+    bool lseek_ret_handle;
+
 	KASSERT(curthread != NULL);
 	KASSERT(curthread->t_curspl == 0);
 	KASSERT(curthread->t_iplhigh_count == 0);
@@ -98,7 +106,7 @@ syscall(struct trapframe *tf)
 	 */
 
 	retval = 0;
-
+	lseek_ret_handle = false;
 	switch (callno) {
 	    case SYS_reboot:
 		err = sys_reboot(tf->tf_a0);
@@ -121,10 +129,30 @@ syscall(struct trapframe *tf)
 	        retval = sys_close((int)tf->tf_a0);
 		if (retval<0) err = ENOENT; 
                 break;
-            case SYS_remove:
+
+        case SYS_remove:
 	      /* just ignore: do nothing */
 	        retval = 0;
                 break;
+		case SYS_lseek:
+				//get the whence value from sp+16
+			err = copyin( (userptr_t)(tf->tf_sp + 16),
+					&lseek_whence, sizeof( int ) );
+			if( err )
+				break;
+			err = sys_lseek(
+				tf->tf_a0,
+				MAKE_64BIT( tf->tf_a2, tf->tf_a3 ),
+				lseek_whence,
+				&retval64
+			);
+
+			//if no errors occurred, we must handle
+			//a 64-bit return value.
+			lseek_ret_handle = true;
+
+            break;
+			break;
 #endif
 	    case SYS_write:
 	        retval = sys_write((int)tf->tf_a0,
@@ -132,7 +160,7 @@ syscall(struct trapframe *tf)
 				(size_t)tf->tf_a2);
 		/* error: function not implemented */
                 if (retval<0) err = ENOSYS; 
-		else err = 0;
+				else err = 0;
                 break;
 	    case SYS_read:
 	        retval = sys_read((int)tf->tf_a0,
@@ -157,6 +185,32 @@ syscall(struct trapframe *tf)
                 if (retval<0) err = ENOSYS; 
 		else err = 0;
                 break;
+		case SYS_fstat:
+			retval = sys_fstat((int)tf->tf_a0, (struct stat *)tf->tf_a1);
+				if (retval<0) err = ENOSYS;
+					break;
+		case SYS___getcwd:
+			err = sys___getcwd((userptr_t)tf->tf_a0, (size_t)tf->tf_a1, &retval);
+					break;
+		case SYS_chdir:
+			err = sys_chdir((userptr_t)tf->tf_a0);
+				if (retval<0) err = ENOSYS;
+					break;		
+		case SYS_mkdir:
+			err = sys_mkdir((userptr_t)tf->tf_a0, (mode_t)tf->tf_a1);
+				if (retval<0) err = ENOSYS;
+					break;	
+		case SYS_rmdir:
+			err = sys_rmdir((userptr_t)tf->tf_a0);
+				if (retval<0) err = ENOSYS;
+					break;
+		case SYS_getdirentry:
+			err = sys_getdirentry((int) tf->tf_a0, (userptr_t)tf->tf_a1, (size_t) tf->tf_a3);
+				if (retval<0) err = ENOSYS;
+					break;
+		case SYS_dup2:
+        	err = sys_dup2( tf->tf_a0, tf->tf_a1, &retval );
+        		break;
 
 #if OPT_FORK
 	    case SYS_fork:
@@ -188,6 +242,11 @@ syscall(struct trapframe *tf)
 		tf->tf_v0 = err;
 		tf->tf_a3 = 1;      /* signal an error */
 	}
+	else if( lseek_ret_handle ) {
+		tf->tf_a3 = 0;
+		tf->tf_v0 = GET_HI( retval64 );
+		tf->tf_v1 = GET_LO( retval64 );
+    }
 	else {
 		/* Success. */
 		tf->tf_v0 = retval;

@@ -125,6 +125,9 @@ vfs_chdir(char *path)
 {
 	struct vnode *vn;
 	int result;
+	
+	struct proc *p = curproc;
+	(void)p;
 
 	result = vfs_lookup(path, &vn);
 	if (result) {
@@ -147,6 +150,9 @@ vfs_getcwd(struct uio *uio)
 	int result;
 	const char *name;
 	char colon=':';
+
+	struct proc *p = curproc;
+	(void)p;
 
 	KASSERT(uio->uio_rw==UIO_READ);
 
@@ -175,7 +181,7 @@ vfs_getcwd(struct uio *uio)
 		goto out;
 	}
 
-	result = VOP_NAMEFILE(cwd, uio);
+	result = VOP_NAMEFILE(cwd, uio); //INCRIMINATA!!!
 
  out:
 
