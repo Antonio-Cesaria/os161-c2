@@ -13,7 +13,7 @@
 #include <lib.h>
 
 #if OPT_FILE
-
+#include <kern/fcntl.h>
 #include <copyinout.h>
 #include <vnode.h>
 #include <vfs.h>
@@ -188,20 +188,34 @@ sys_open(userptr_t path, int openflags, mode_t mode, int *errp)
 {
   int fd, i;
   struct vnode *v;
-  struct openfile *of=NULL;; 	
-  int result;
+  struct openfile *of=NULL;
+  char *p = NULL;
 
-  result = vfs_open((char *)path, openflags, mode, &v);
-  if (result) {
-    *errp = ENOENT;
+  if(path == NULL){
+    *errp = EFAULT;
     return -1;
   }
+
+  *errp = copyin(path, &p, sizeof(char*));
+  if(*errp)
+    return -1;
+
+  if(!strcmp((char*)path, "")){
+    *errp=EINVAL;
+    return -1;
+  }
+
+  *errp = vfs_open((char *)path, openflags, mode, &v);
+  if (*errp) 
+    return -1;
+
   /* search system open file table */
   for (i=0; i<SYSTEM_OPEN_MAX; i++) {
     if (systemFileTable[i].vn==NULL) {
       of = &systemFileTable[i];
       of->vn = v;
       of->offset = 0; // TODO: handle offset with append
+      of->flags = openflags;
       of->countRef = 1;
       break;
     }
@@ -213,8 +227,8 @@ sys_open(userptr_t path, int openflags, mode_t mode, int *errp)
   else {
     for (fd=STDERR_FILENO+1; fd<OPEN_MAX; fd++) {
       if (curproc->fileTable[fd] == NULL) {
-	curproc->fileTable[fd] = of;
-	return fd;
+        curproc->fileTable[fd] = of;
+        return fd;
       }
     }
     // no free slot in process open file table
@@ -254,13 +268,53 @@ sys_close(int fd)
  * simple file system calls for write/read
  */
 int
-sys_write(int fd, userptr_t buf_ptr, size_t size)
+sys_write(int fd, userptr_t buf_ptr, size_t size, int *err)
 {
   int i;
-  char *p = (char *)buf_ptr;
+  char *p = (char*) buf_ptr;
+  void *in = NULL;
+  struct proc *pr = curproc;
+  (void)pr;
+  if(fd < 0){
+    *err = EBADF;
+    return -1;
+  }
+    
+  if(fd >= OPEN_MAX){
+    *err = EBADF;
+    return -1;
+  }
+
+  if(p == NULL){
+    *err = EFAULT;
+    return -1;
+  }
+  
+  in = kmalloc(sizeof(void*));
+  if(in == NULL){
+    *err = ENOMEM;
+    return -1;
+  }
+  
+  *err = copyin(buf_ptr, in, sizeof(void*));
+  if(*err){
+    return -1;
+  }
 
   if (fd!=STDOUT_FILENO && fd!=STDERR_FILENO) {
 #if OPT_FILE
+    if(curproc->fileTable[fd] == NULL){
+      *err = EBADF;
+    return -1;
+    }
+
+    if( (curproc->fileTable[fd]->flags & 0x01) == O_RDONLY){
+      if( (curproc->fileTable[fd]->flags & 0x02) != 2){
+        *err = EBADF;
+        return -1;
+      }
+    }
+      
     return file_write(fd, buf_ptr, size);
 #else
     kprintf("sys_write supported only to stdout\n");
@@ -279,13 +333,49 @@ sys_write(int fd, userptr_t buf_ptr, size_t size)
 }
 
 int
-sys_read(int fd, userptr_t buf_ptr, size_t size)
+sys_read(int fd, userptr_t buf_ptr, size_t size, int *err)
 {
   int i;
   char *p = (char *)buf_ptr;
+  void *in = NULL;
+
+  if(fd < 0){
+    *err = EBADF;
+    return -1;
+  }
+
+  if(fd >= OPEN_MAX){
+    *err = EBADF;
+    return -1;
+  }
+
+  if(p == NULL){
+    *err = EFAULT;
+    return -1;
+  }
+
+  in = kmalloc(sizeof(void*));
+  if(in == NULL){
+    *err = ENOMEM;
+    return -1;
+  }
+
+  *err = copyin(buf_ptr, in, sizeof(void*));
+  if(*err){
+    return -1;
+  }
 
   if (fd != STDIN_FILENO) {
 #if OPT_FILE
+    if(curproc->fileTable[fd] == NULL){
+      *err = EBADF;
+      return -1;
+    }
+    if(curproc->fileTable[fd]->flags % 2 == O_WRONLY){
+      *err = EBADF;
+      return -1;
+    }
+
     return file_read(fd, buf_ptr, size);
 #else
     kprintf("sys_read supported only to stdin\n");
