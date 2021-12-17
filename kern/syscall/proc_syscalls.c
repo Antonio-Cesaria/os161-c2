@@ -53,16 +53,73 @@ sys__exit(int status)
 }
 
 int
-sys_waitpid(pid_t pid, userptr_t statusp, int options)
+sys_waitpid(pid_t pid, userptr_t statusp, int options, int *err)
 {
 #if OPT_WAITPID
-  struct proc *p = proc_search_pid(pid);
-  int s;
-  (void)options; /* not handled */
-  if (p==NULL) return -1;
-  s = proc_wait(p);
-  if (statusp!=NULL) 
-    *(int*)statusp = s;
+  
+  struct proc *p;
+  struct proc *cur = curproc;
+  int *s=NULL;
+
+  if(pid == cur->p_pid){
+    *err = ECHILD;
+    return -1;
+  }
+
+  if(pid == curproc->p_ppid){
+    *err = ECHILD;
+    return -1;
+  }
+
+  void *check = NULL;
+  check = (void*) kmalloc(sizeof(void*));
+
+  *err = copyin(statusp, check, sizeof(void*));
+  if(*err)
+    return -1;
+  
+
+  if(pid <= 0){
+    *err = ECHILD;
+    return -1;
+  }
+
+  s = (int*) kmalloc(sizeof(int));
+  if(s == NULL) return -1;
+  
+  p = proc_search_pid(pid);
+  if(p == NULL){
+    *err = ECHILD;
+    return -1;
+  }
+
+  (void)cur; //debugging purposes
+  if(options != 0){ /* options not handled */
+    *err = EINVAL;
+    return -1; 
+  }
+
+  s = (int*) kmalloc(sizeof(int));
+  if(s == NULL) return -1;
+  
+  p = proc_search_pid(pid);
+  if(p == NULL){
+    *err = ECHILD;
+    return -1;
+  }
+  /**s = 444;
+  *err = copyout((void*)s, statusp, sizeof(int));
+    if(*err)
+      return -1;*/
+
+  *s = proc_wait(p);
+  if (statusp!=NULL){
+    //*(int*)statusp = s;
+    //cur = curproc;
+    *err = copyout((void*)s, statusp, sizeof(int));
+    if(*err)
+      return -1;
+  }
   return pid;
 #else
   (void)options; /* not handled */

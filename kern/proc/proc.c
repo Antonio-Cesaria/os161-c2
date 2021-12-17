@@ -75,7 +75,8 @@ struct proc *
 proc_search_pid(pid_t pid) {
 #if OPT_WAITPID
   struct proc *p;
-  KASSERT(pid>=0&&pid<MAX_PROC);
+  if(!(pid>=0&&pid<MAX_PROC))
+	return NULL;
   p = processTable.proc[pid];
   KASSERT(p->p_pid==pid);
   return p;
@@ -83,6 +84,15 @@ proc_search_pid(pid_t pid) {
   (void)pid;
   return NULL;
 #endif
+}
+
+pid_t 
+pid_search_proc(struct proc *p){
+	int i;
+	for(i=0;i<MAX_PROC;i++)
+		if(processTable.proc[i] == p)
+			return (pid_t)i;
+	return (pid_t)0;
 }
 
 /*
@@ -108,6 +118,9 @@ proc_init_waitpid(struct proc *proc, const char *name) {
     i++;
     if (i>MAX_PROC) i=1;
   }
+  if(processTable.active != 0)
+  	proc->p_ppid = pid_search_proc(curproc);
+
   spinlock_release(&processTable.lk);
   if (proc->p_pid==0) {
     panic("too many processes. proc table is full\n");

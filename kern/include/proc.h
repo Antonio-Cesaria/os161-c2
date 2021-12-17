@@ -85,6 +85,8 @@ struct proc {
         /* G.Cabodi - 2019 - implement waitpid: synchro, and exit status */
         int p_status;                   /* status as obtained by exit() */
         pid_t p_pid;                    /* process pid */
+
+		pid_t p_ppid;					/* parent process pid */
 #if USE_SEMAPHORE_FOR_WAITPID
 	struct semaphore *p_sem;
 #else
@@ -125,6 +127,8 @@ struct addrspace *proc_setas(struct addrspace *);
 int proc_wait(struct proc *proc);
 /* get proc from pid */
 struct proc *proc_search_pid(pid_t pid);
+/* get pid from proc */
+pid_t pid_search_proc(struct proc *p);
 /* signal end/exit of process */
 void proc_signal_end(struct proc *proc);
 #if OPT_FILE
