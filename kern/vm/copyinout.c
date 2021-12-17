@@ -267,11 +267,16 @@ copyinstr(const_userptr_t usersrc, char *dest, size_t len, size_t *actual)
 {
 	int result;
 	size_t stoplen;
+	char *check;
 
 	result = copycheck(usersrc, len, &stoplen);
 	if (result) {
 		return result;
 	}
+
+	result = copyin(usersrc, &check, sizeof(char*)); 
+	if(result)
+		return result;
 
 	curthread->t_machdep.tm_badfaultfunc = copyfail;
 

@@ -201,8 +201,11 @@ int copyin_args(char*** args, char** uargs, int *argc){
   for(int i=0;i<(*argc);i++){
     kargs[i] = (char*) kmalloc(ARG_MAX * sizeof(char));
     err = copyinstr((userptr_t) uargs[i], kargs[i], ARG_MAX, &count);
-    if(err)
+    if(err){
+      *argc = i;
+      *args = kargs;
       return err;
+    }
     //checks right number of bytes have been copied
     if(count != (strlen(uargs[i])+1))
       panic("Copied wrong number of bytes!\n");
@@ -223,7 +226,7 @@ int copyout_args(char** argv, vaddr_t *stackptr, int argc){
   */
 
   size_t size=0;
-  int i, j;
+  int i, j, err;
   size_t cnt;
   char term = '\0';
   int *padding = (int*) kmalloc(argc * sizeof(int)); //string padding array
@@ -250,21 +253,37 @@ int copyout_args(char** argv, vaddr_t *stackptr, int argc){
   for(i=0;i<argc;i++){
     ptr = (char**) (*stackptr + (argc + 1 - i) * 4 + current_str_len);
     current_str_len += (strlen(argv[i])+padding[i]+1);
-    copyout((void*)&ptr, (userptr_t) *stackptr, sizeof(char*));
+    err = copyout((void*)&ptr, (userptr_t) *stackptr, sizeof(char*));
+    if(err){
+      kfree(padding);
+      return err;
+    }
     *stackptr += sizeof(char*);
   }
   ptr = NULL; //last string pointer
-  copyout((void*)&ptr, (userptr_t) *stackptr, sizeof(char*));
+  err = copyout((void*)&ptr, (userptr_t) *stackptr, sizeof(char*));
+  if(err){
+    kfree(padding);
+    return err;
+  }
   *stackptr += sizeof(char*);
 
   //pushing the strings (arguments) in the correct order with correct padding into the stack
   for(i=0;i<argc;i++){
-    copyoutstr(argv[i], (userptr_t) *stackptr, strlen(argv[i])+1, &cnt);
+    err = copyoutstr(argv[i], (userptr_t) *stackptr, strlen(argv[i])+1, &cnt);
+    if(err){
+      kfree(padding);
+      return err;
+    }
     if(cnt != (strlen(argv[i])+1))
       panic("Copied wrong number of bytes!\n");
     *stackptr += (strlen(argv[i]) + 1);
     for(j=0;j<padding[i];j++){
-      copyout(&term, (userptr_t) *stackptr, sizeof(char));
+      err = copyout(&term, (userptr_t) *stackptr, sizeof(char));
+      if(err){
+        kfree(padding);
+        return err;
+      }
       *stackptr += sizeof(char);
     }
   }
@@ -276,14 +295,13 @@ int copyout_args(char** argv, vaddr_t *stackptr, int argc){
   return 0;
 }
 
-int sys_execv(char* progname, char** args){
+int sys_execv(char* progname, char** args, int *err){
   
   struct addrspace *as, *as_old;
 	struct vnode *v;
 	vaddr_t entrypoint, stackptr;
-	int result;
   char** argv = NULL;
-  int argc=0, err;
+  int argc=0;
   struct proc *p = curproc;
   struct lock *exec_lock;
   char *k_prgname; //kernel space progname
@@ -294,28 +312,31 @@ int sys_execv(char* progname, char** args){
   (void)p;
   /* copy program arguments from user space to kernel space */
 
-  if(progname == NULL || args == NULL)
-    return EFAULT;
+  if(progname == NULL || args == NULL){
+    *err = EFAULT;
+    return -1;
+  }
+    
 
   exec_lock = lock_create("exec_lock");
   lock_acquire(exec_lock);
 
-  err = copyin_args(&argv, args, &argc);
-  if(err){
+  *err = copyin_args(&argv, args, &argc);
+  if(*err){
     for(int i=0;i<argc;i++)
       kfree(argv[i]);
     kfree(argv);
-    return err;
+    return -1;
   }
   k_prgname = (char*) kmalloc(ARG_MAX*sizeof(char)+1);
-  err = copyinstr((userptr_t)progname, k_prgname, ARG_MAX*sizeof(char)+1, NULL);
-  if(err){
+  *err = copyinstr((userptr_t)progname, k_prgname, ARG_MAX*sizeof(char)+1, NULL);
+  if(*err){
     for(int i=0;i<argc;i++)
       kfree(argv[i]);
     kfree(argv);
     lock_release(exec_lock);
     kfree(k_prgname);
-    return err;
+    return -1;
   }
   /* detach the current address space */
   as_old = proc_setas(NULL);
@@ -323,8 +344,8 @@ int sys_execv(char* progname, char** args){
   //as_destroy(as_old);
 
 	/* Open the file of the executable. */
-	result = vfs_open(k_prgname, O_RDONLY, 0, &v);
-	if (result) {
+	*err = vfs_open(k_prgname, O_RDONLY, 0, &v);
+	if (*err) {
     kfree(k_prgname);
     for(int i=0;i<argc;i++)
       kfree(argv[i]);
@@ -333,10 +354,19 @@ int sys_execv(char* progname, char** args){
     proc_setas(as_old);
     //as_activate();
     lock_release(exec_lock);
-		return result;
+		return -1;
 	}
 
-  result = VOP_GETTYPE(v, &file_or_dir);
+  *err = VOP_GETTYPE(v, &file_or_dir);
+  if(*err){
+    kfree(k_prgname);
+    for(int i=0;i<argc;i++)
+      kfree(argv[i]);
+    kfree(argv);
+    proc_setas(as_old);
+    lock_release(exec_lock);
+    return -1;
+  }
   if(file_or_dir == S_IFDIR){
     kfree(k_prgname);
     for(int i=0;i<argc;i++)
@@ -344,7 +374,8 @@ int sys_execv(char* progname, char** args){
     kfree(argv);
     proc_setas(as_old);
     lock_release(exec_lock);
-    return EISDIR;
+    *err = EISDIR;
+    return -1;
   }
 
 	/* We should be a new process. */
@@ -359,7 +390,8 @@ int sys_execv(char* progname, char** args){
     kfree(argv);
 		vfs_close(v);
     lock_release(exec_lock);
-		return ENOMEM;
+    *err = ENOMEM;
+		return -1;
 	}
 
   /* Switch to it and activate it. */
@@ -368,8 +400,8 @@ int sys_execv(char* progname, char** args){
   proc_setas(as);
 
 	/* Load the executable. */
-	result = load_elf(v, &entrypoint);
-	if (result) {
+	*err = load_elf(v, &entrypoint);
+	if (*err) {
     kfree(k_prgname);
 		/* p_addrspace will go away when curproc is destroyed */
     for(int i=0;i<argc;i++)
@@ -384,15 +416,15 @@ int sys_execv(char* progname, char** args){
 
     vfs_close(v);
     lock_release(exec_lock);
-		return result;
+		return -1;
 	}
 
 	/* Done with the file now. */
 	vfs_close(v);
 
 	/* Define the user stack in the address space */
-	result = as_define_stack(as, &stackptr);
-	if (result) {
+	*err = as_define_stack(as, &stackptr);
+	if (*err) {
     kfree(k_prgname);
 		/* p_addrspace will go away when curproc is destroyed */
     for(int i=0;i<argc;i++)
@@ -407,11 +439,28 @@ int sys_execv(char* progname, char** args){
 
     vfs_close(v);
     lock_release(exec_lock);
-		return result;
+		return -1;
 	}
 
   /* copying program arguments back from kernel space to user space (new address space) */
-  copyout_args(argv, &stackptr, argc);
+  *err = copyout_args(argv, &stackptr, argc);
+  if(*err){
+    kfree(k_prgname);
+		/* p_addrspace will go away when curproc is destroyed */
+    for(int i=0;i<argc;i++)
+      kfree(argv[i]);
+    kfree(argv);
+
+    as_deactivate();
+    as_destroy(as);
+
+    proc_setas(as_old); 
+    //as_activate();
+
+    vfs_close(v);
+    lock_release(exec_lock);
+		return -1;
+  }
   
   as_destroy(as_old);
   kfree(k_prgname);
@@ -424,7 +473,8 @@ int sys_execv(char* progname, char** args){
 
 	/* enter_new_process does not return. */
 	panic("enter_new_process returned\n");
-	return EINVAL;
+  *err = EINVAL;
+	return -1;
 
   return 0;
 }

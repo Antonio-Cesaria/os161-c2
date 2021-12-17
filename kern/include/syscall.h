@@ -87,7 +87,7 @@ pid_t sys_getpid(void);
 pid_t sys_getpid2(struct proc* p);
 #if OPT_FORK
 int sys_fork(struct trapframe *ctf, pid_t *retval);
-int sys_execv(char *progname, char **args);
+int sys_execv(char *progname, char **args, int *err);
 int sys_fstat (int fd, struct stat *buf);
 int sys___getcwd(userptr_t buf, size_t size, int *retval);
 int sys_chdir(userptr_t dir);
