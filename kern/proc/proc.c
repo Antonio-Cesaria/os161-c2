@@ -52,6 +52,8 @@
 
 #if OPT_WAITPID
 #include <synch.h>
+#include <kern/wait.h>
+
 
 #define MAX_PROC 100
 static struct _processTable {
@@ -463,7 +465,7 @@ proc_wait(struct proc *proc)
 #endif
         return_status = proc->p_status;
         proc_destroy(proc);
-        return return_status;
+        return _MKWAIT_EXIT(return_status);
 #else
         /* this doesn't synchronize */ 
         (void)proc;

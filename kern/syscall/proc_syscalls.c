@@ -61,6 +61,11 @@ sys_waitpid(pid_t pid, userptr_t statusp, int options, int *err)
   struct proc *cur = curproc;
   int *s=NULL;
 
+  if(statusp == NULL){
+    *err = 0;
+    return -1; 
+  }
+
   if(pid == cur->p_pid){
     *err = ECHILD;
     return -1;
