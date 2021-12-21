@@ -86,6 +86,8 @@ syscall(struct trapframe *tf)
 	int32_t retval;
 	int err=0;
 
+	int valid_anyway=0;
+
 	int64_t retval64;
     int lseek_whence;
     bool lseek_ret_handle;
@@ -176,9 +178,12 @@ syscall(struct trapframe *tf)
  	        sys__exit((int)tf->tf_a0);
                 break;
 	    case SYS_waitpid:
+			if(tf->tf_a1 == 0x0)
+				valid_anyway = 1;
 	        retval = sys_waitpid((pid_t)tf->tf_a0,
 				(userptr_t)tf->tf_a1,
 				(int)tf->tf_a2,
+				valid_anyway,
 				&err);
                 break;
 	    case SYS_getpid:

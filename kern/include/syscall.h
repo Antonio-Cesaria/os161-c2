@@ -82,7 +82,7 @@ int sys_lseek( int fd, off_t offset, int whence, int64_t *retval );
 int sys_write(int fd, userptr_t buf_ptr, size_t size, int *err);
 int sys_read(int fd, userptr_t buf_ptr, size_t size, int *err);
 void sys__exit(int status);
-int sys_waitpid(pid_t pid, userptr_t statusp, int options, int *err);
+int sys_waitpid(pid_t pid, userptr_t statusp, int options, int valid_anyway, int *err);
 pid_t sys_getpid(void);
 pid_t sys_getpid2(struct proc* p);
 #if OPT_FORK

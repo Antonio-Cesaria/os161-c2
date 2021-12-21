@@ -80,7 +80,7 @@ proc_search_pid(pid_t pid) {
   if(!(pid>=0&&pid<MAX_PROC))
 	return NULL;
   p = processTable.proc[pid];
-  KASSERT(p->p_pid==pid);
+  //KASSERT(p->p_pid==pid);
   return p;
 #else
   (void)pid;

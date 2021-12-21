@@ -12,4 +12,4 @@ proc.o: ../../proc/proc.c ../../include/types.h \
  opt-dumbvm.h ../../include/vnode.h ../../include/syscall.h \
  opt-syscalls.h opt-fork.h ../../include/stat.h ../../include/kern/stat.h \
  ../../include/kern/stattypes.h ../../include/synch.h opt-locksem.h \
- ../../include/wchan.h
+ ../../include/wchan.h ../../include/kern/wait.h
