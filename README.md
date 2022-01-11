@@ -73,13 +73,15 @@ Viene copiato il progrname nello spazio kernel (anche se già presente negli arg
 
 #### int copyout_args(char** argv, vaddr_t *stackptr, int argc)
 
-Questa funzione di supporto si occupa del "corretto" caricamento degli argomenti nello stack dell'as appena creato. Per corretto si intende il rispetto del giusto layout (ordinamento e allinamento) dello stack.
+Questa funzione di supporto si occupa del "corretto" caricamento degli argomenti nello stack dell'as appena creato. Per corretto si intende il rispetto del giusto layout (ordinamento e allinamento) dello stack, come mostrato in figura.
+
+![stackptr](/stackptr.png)
+
+Per poter ottenere questo risultato, è stato prima calcolata la dimensione totale del vettore di stringhe da inserire nello stack considerando anche il padding delle stringhe per mantenere l'allineamento di multipli di 4. Dopodichè viene costruito un vettore contenente i padding di tutte le stringhe. Successivamente lo stackptr viene decrementato e vengono in primo luogo copiati i puntatori (precalcolati) alle varie stringhe. Infine vengono "pushate" le stringhe nel corretto ordine e lo stackptr viene decrementato in modo da puntare alla prima posizione libera dello stack.
 
 
-La syscall si basa su due altre funzioni di supporto: copyin_args, copyout_args.
-La prima permette di copiare gli argomenti della sys_execv da spazio user a spazio kernel mentre la seconda si occupa di trasferire gli argomenti da spazio kernel al nuovo spazio di indirizzamento del processo. 
-Copyout_args prevede inoltre il riempimento e l'allineamento dello stack con gli argomenti da passare a enter_new_process. 
-
+Dopo aver copiato gli argomenti nello stack del nuovo as, viene distrutto il vacchio as(as_old), viene invocata la funzione enter_new_process() che si occuperà di far ripartire l'esecuzione del processo con il nuovo address space. Il precedente address space viene distrutto solo alla fine in quanto in presenza di errori in ognuna delle operazioni intermedie, questo verrà ripristinato. La corretta implementazione può essere testata facilmente invocando la shell e chiamando un'eseguibile (per esempio palin).
+Il corretto passaggio degli argomenti può essere facilmente testato con il programma testbin/argtest oltre che con l'esecuzione di un'eseguibile che richiede argomenti (Es. cat sys161.conf). 
 
 ### Suddivisione carico di lavoro
 Le syscall fork, execv, waitipid, exit, open, close, read e write sono state realizzate in collaborazione in quanto parte di esse erano già state realizzate durante il corso ed altre come la execv richiedevano (dal nostro punto di vista) maggiore attenzione e collaborazione in quanto centrali per lo sviluppo del progetto.
