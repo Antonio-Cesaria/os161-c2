@@ -25,6 +25,7 @@
 #include <kern/fcntl.h>
 #include <vnode.h>
 #include <uio.h>
+#include <limits.h>
 
 /*
  * system calls for process management
@@ -58,21 +59,21 @@ sys_waitpid(pid_t pid, userptr_t statusp, int options, int valid_anyway, int *er
 #if OPT_WAITPID
   
   struct proc *p;
-  struct proc *cur = curproc;
   int *s=NULL;
   void *check = NULL;
 
+  //error codes handling
   if(pid <= 0){
     *err = ECHILD;
     return -1;
   }
 
-  if(pid == cur->p_pid){
+  if(pid == curproc->p_pid){
     *err = ECHILD;
     return -1;
   }
 
-  if(pid == cur->p_ppid){
+  if(pid == curproc->p_ppid){
     *err = ECHILD;
     return -1;
   }
@@ -83,8 +84,8 @@ sys_waitpid(pid_t pid, userptr_t statusp, int options, int valid_anyway, int *er
     return -1;
   }
 
-  (void)cur; //debugging purposes
-  if(options != 0){ /* options not handled */
+  /* options not handled */
+  if(options != 0){   
     *err = EINVAL;
     return -1; 
   }
@@ -98,30 +99,24 @@ sys_waitpid(pid_t pid, userptr_t statusp, int options, int valid_anyway, int *er
   s = (int*) kmalloc(sizeof(int));
   if(s == NULL) return -1;
 
+  /*valid_anyway è un flag utilizzato per gestire il caso in cui il puntatore status == NULL*/
   if(valid_anyway){
     *err = 0;
     *s = proc_wait(p);
     return pid; 
   }
 
-  *err = copyin(statusp, check, sizeof(void*)); //problem: raises errore both with invalid and NULL!!!
+  //SOLVED: problem: raises errore both with invalid and NULL!!!
+  *err = copyin(statusp, check, sizeof(void*)); 
   if(*err){
     return -1;
   }
 
-  /**s = 444;
-  *err = copyout((void*)s, statusp, sizeof(int));
-    if(*err)
-      return -1;*/
-
   *s = proc_wait(p);
-  //if (statusp!=NULL){
-    //*(int*)statusp = s;
-    //cur = curproc;
-    *err = copyout((void*)s, statusp, sizeof(int));
-    if(*err)
-      return -1;
-  //}
+  *err = copyout((void*)s, statusp, sizeof(int));
+  if(*err)
+    return -1;
+
   return pid;
 #else
   (void)options; /* not handled */
@@ -131,6 +126,7 @@ sys_waitpid(pid_t pid, userptr_t statusp, int options, int valid_anyway, int *er
 #endif
 }
 
+/*Retrieve pid of the current process (curproc)*/
 pid_t
 sys_getpid(void)
 {
@@ -142,14 +138,11 @@ sys_getpid(void)
 #endif
 }
 
+/*Retrieve pid of the process p passed as argument*/
 pid_t
 sys_getpid2(struct proc* p)
 {
 #if OPT_WAITPID
-/*
-  KASSERT(curproc != NULL);
-  return curproc->p_pid;
-*/
   KASSERT(p != NULL);
   return p->p_pid;
 #else
@@ -197,9 +190,6 @@ int sys_fork(struct trapframe *ctf, pid_t *retval) {
   }
   memcpy(tf_child, ctf, sizeof(struct trapframe));
 
-  /* TO BE DONE: linking parent/child, so that child terminated 
-     on parent exit */
-
   result = thread_fork(
 		 curthread->t_name, newp,
 		 call_enter_forked_process, 
@@ -215,7 +205,11 @@ int sys_fork(struct trapframe *ctf, pid_t *retval) {
 
   return 0;
 }
+#endif
 
+#if OPT_C2
+
+/*Copy the arguments from user space to kernel space*/
 int copyin_args(char*** args, char** uargs, int *argc){
   
   char **kargs=NULL;
@@ -229,11 +223,7 @@ int copyin_args(char*** args, char** uargs, int *argc){
   if(err)
     return err;
 
-  /*
-  while(uargs[*argc] != NULL){
-    (*argc)++;
-  }
-  */
+  
   while(check != NULL){
     err = copyin((userptr_t)uargs + i * 4, &check, sizeof(void*));
     if(err)
@@ -242,17 +232,6 @@ int copyin_args(char*** args, char** uargs, int *argc){
     *argc+=1;
   }
   (*argc)--;
-  /*
-  while((err = copyin((userptr_t)uargs + i * 4, &check, sizeof(check))) == 0 ) {
-		if(check == NULL)
-			break;
-		err = copyinstr( (userptr_t)check, *kargs, sizeof(kargs), NULL );
-		if( err ) 
-			return err;
-		
-		++i;
-		*argc += 1;
-  }*/
   
   kargs = (char**) kmalloc(*argc * sizeof(char*));
 
@@ -362,24 +341,19 @@ int sys_execv(char* progname, char** args, int *err){
   char** argv = NULL;
   int argc=0;
   struct proc *p = curproc;
-  struct lock *exec_lock;
   char *k_prgname; //kernel space progname
   mode_t file_or_dir;
 
   /* parameter is unused beacuse progname is yet present in args array (args[0]) */
   //(void)progname;
   (void)p;
+  
   /* copy program arguments from user space to kernel space */
-
   if(progname == NULL || args == NULL){
     *err = EFAULT;
     return -1;
   }
-    
-
-  exec_lock = lock_create("exec_lock");
-  lock_acquire(exec_lock);
-
+  
   *err = copyin_args(&argv, args, &argc);
   if(*err){
     for(int i=0;i<argc;i++)
@@ -387,21 +361,21 @@ int sys_execv(char* progname, char** args, int *err){
     kfree(argv);
     return -1;
   }
+
   k_prgname = (char*) kmalloc(ARG_MAX*sizeof(char)+1);
   *err = copyinstr((userptr_t)progname, k_prgname, ARG_MAX*sizeof(char)+1, NULL);
   if(*err){
     for(int i=0;i<argc;i++)
       kfree(argv[i]);
     kfree(argv);
-    lock_release(exec_lock);
     kfree(k_prgname);
     return -1;
   }
+
   /* detach the current address space */
   as_old = proc_setas(NULL);
   as_deactivate();
-  //as_destroy(as_old);
-
+  
 	/* Open the file of the executable. */
 	*err = vfs_open(k_prgname, O_RDONLY, 0, &v);
 	if (*err) {
@@ -409,11 +383,8 @@ int sys_execv(char* progname, char** args, int *err){
     for(int i=0;i<argc;i++)
       kfree(argv[i]);
     kfree(argv);
-
     proc_setas(as_old);
-    //as_activate();
-    lock_release(exec_lock);
-		return -1;
+   	return -1;
 	}
 
   *err = VOP_GETTYPE(v, &file_or_dir);
@@ -423,7 +394,6 @@ int sys_execv(char* progname, char** args, int *err){
       kfree(argv[i]);
     kfree(argv);
     proc_setas(as_old);
-    lock_release(exec_lock);
     return -1;
   }
   if(file_or_dir == S_IFDIR){
@@ -432,7 +402,6 @@ int sys_execv(char* progname, char** args, int *err){
       kfree(argv[i]);
     kfree(argv);
     proc_setas(as_old);
-    lock_release(exec_lock);
     *err = EISDIR;
     return -1;
   }
@@ -448,13 +417,11 @@ int sys_execv(char* progname, char** args, int *err){
       kfree(argv[i]);
     kfree(argv);
 		vfs_close(v);
-    lock_release(exec_lock);
     *err = ENOMEM;
 		return -1;
 	}
 
   /* Switch to it and activate it. */
-  
   as_activate();
   proc_setas(as);
 
@@ -466,16 +433,11 @@ int sys_execv(char* progname, char** args, int *err){
     for(int i=0;i<argc;i++)
       kfree(argv[i]);
     kfree(argv);
-
     as_deactivate();
     as_destroy(as);
-
     proc_setas(as_old); 
-    //as_activate();
-
     vfs_close(v);
-    lock_release(exec_lock);
-		return -1;
+  	return -1;
 	}
 
 	/* Done with the file now. */
@@ -489,16 +451,11 @@ int sys_execv(char* progname, char** args, int *err){
     for(int i=0;i<argc;i++)
       kfree(argv[i]);
     kfree(argv);
-
     as_deactivate();
     as_destroy(as);
-
     proc_setas(as_old); 
-    //as_activate();
-
     vfs_close(v);
-    lock_release(exec_lock);
-		return -1;
+  	return -1;
 	}
 
   /* copying program arguments back from kernel space to user space (new address space) */
@@ -509,24 +466,20 @@ int sys_execv(char* progname, char** args, int *err){
     for(int i=0;i<argc;i++)
       kfree(argv[i]);
     kfree(argv);
-
     as_deactivate();
     as_destroy(as);
-
     proc_setas(as_old); 
-    //as_activate();
-
     vfs_close(v);
-    lock_release(exec_lock);
 		return -1;
   }
   
   as_destroy(as_old);
   kfree(k_prgname);
   strcpy(curproc->p_name, argv[0]);
-  lock_release(exec_lock);
+  KASSERT(stackptr % 4 == 0);
+  
   /* launch the new process */
-  enter_new_process(argc /*argc*/, (userptr_t) stackptr /*userspace addr of argv*/,
+  enter_new_process(argc /*argc*/, (userptr_t) stackptr/*userspace addr of argv*/,
 			  NULL /*userspace addr of environment*/,
 			  stackptr, entrypoint);
 
@@ -534,8 +487,6 @@ int sys_execv(char* progname, char** args, int *err){
 	panic("enter_new_process returned\n");
   *err = EINVAL;
 	return -1;
-
-  return 0;
 }
 
 int sys___getcwd(userptr_t buf, size_t size, int *retval){
@@ -561,21 +512,16 @@ int sys___getcwd(userptr_t buf, size_t size, int *retval){
 
   kbuf = (char*) kmalloc(size*sizeof(char));
   if(kbuf == NULL)
-    return -1; //correggi
+    return -1; 
   uio_kinit(&iov, &ku, kbuf, size, 0, UIO_READ);
   
-  /*ku.uio_space = curthread->t_proc->p_addrspace;
-  ku.uio_segflg = UIO_USERSPACE;*/
-
   result = vfs_getcwd(&ku);
   if (result) {
 		kprintf("vfs_getcwd failed (%s)\n", strerror(result));
 		return result;
 	}
   
-  /* null terminate */
-	//kbuf[sizeof(kbuf)-1-ku.uio_resid] = 0;
-
+  
   err = copyout((void*)kbuf, (userptr_t)buf, size);
   if(err)
     return err;
@@ -619,7 +565,6 @@ int sys_chdir(userptr_t dir){
     return result;
   }
   vfs_close(v);
-  //controllo
   return 0;
 }
 
@@ -631,11 +576,11 @@ int sys_mkdir(userptr_t dir, mode_t mode){
   if(dir == NULL)
     return EFAULT;
 
-  path_name = (char*) kmalloc(100*sizeof(char)); //correggi inserendo PATH_MAX costante
+  path_name = (char*) kmalloc(PATH_MAX*sizeof(char)); //correggi inserendo PATH_MAX costante
   if(path_name == NULL)
     return ENOMEM;
   
-  err = copyinstr(dir, path_name, 100*sizeof(char), &size);
+  err = copyinstr(dir, path_name, PATH_MAX*sizeof(char), &size);
   if(err)
     return err;
 
@@ -659,11 +604,11 @@ int sys_rmdir(userptr_t dir){
   if(dir == NULL)
     return EFAULT;
 
-  path_name = (char*) kmalloc(100*sizeof(char));  //correggere usando PATH_MAX costante
+  path_name = (char*) kmalloc(PATH_MAX*sizeof(char));  //correggere usando PATH_MAX costante
   if(path_name == NULL)
     return ENOMEM;
 
-  err = copyinstr(dir, path_name, 100*sizeof(char), &size);
+  err = copyinstr(dir, path_name, PATH_MAX*sizeof(char), &size);
   if(err)
     return err;
 
@@ -697,9 +642,8 @@ int sys_getdirentry(int fd, userptr_t buf, size_t buflen){
   kbuf = (char*) kmalloc(sizeof(char)*buflen);
   uio_kinit(&io, &ku, (void*)kbuf, buflen, 0, UIO_READ);
 
-  //int spl = splhigh();
+
   result = VOP_GETDIRENTRY(vn, &ku);
-  //splx(spl);
 
   if(result){
     kfree(kbuf);

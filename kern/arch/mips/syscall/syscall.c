@@ -36,10 +36,11 @@
 #include <addrspace.h>
 #include <syscall.h>
 #include <copyinout.h>
+#include <synch.h>
 
 #define MAKE_64BIT(x,y) (((int64_t)x) << 32 | y)
-#define GET_LO(x) ((int32_t) x & 0x00000000FFFFFFFF)
-#define GET_HI(x) ((int32_t) x & 0xFFFFFFFF00000000)
+#define GET_LO(x) ((int64_t) x & 0x00000000FFFFFFFF)
+#define GET_HI(x) (((int64_t) x & 0xFFFFFFFF00000000) >> 32)
 
 /*
  * System call dispatcher.
@@ -81,13 +82,14 @@
  */
 void
 syscall(struct trapframe *tf)
-{
+{	
 	int callno;
 	int32_t retval;
 	int err=0;
 
-	int valid_anyway=0;
-
+	#if OPT_C2
+		int valid_anyway=0;
+	#endif
 	int64_t retval64;
     int lseek_whence;
     bool lseek_ret_handle;
@@ -128,8 +130,8 @@ syscall(struct trapframe *tf)
 				  (mode_t)tf->tf_a2, &err);
                 break;
 	    case SYS_close:
-	        retval = sys_close((int)tf->tf_a0);
-		if (retval<0) err = ENOENT; 
+	        retval = sys_close((int)tf->tf_a0, &err);
+		
                 break;
 
         case SYS_remove:
@@ -148,14 +150,14 @@ syscall(struct trapframe *tf)
 				lseek_whence,
 				&retval64
 			);
-
+			
 			//if no errors occurred, we must handle
 			//a 64-bit return value.
 			lseek_ret_handle = true;
 
             break;
-			break;
 #endif
+#if OPT_C2
 	    case SYS_write:
 	        retval = sys_write((int)tf->tf_a0,
 				(userptr_t)tf->tf_a1,
@@ -186,6 +188,7 @@ syscall(struct trapframe *tf)
 				valid_anyway,
 				&err);
                 break;
+			
 	    case SYS_getpid:
 	        retval = sys_getpid();
                 if (retval<0) err = ENOSYS; 
@@ -222,13 +225,14 @@ syscall(struct trapframe *tf)
 	    case SYS_fork:
 	        err = sys_fork(tf,&retval);
                 break;
-		
+#endif
 		case SYS_execv:
 			retval = sys_execv((char*)tf->tf_a0, 
 							(char**)tf->tf_a1,
 							&err);
  
 				break;
+
 #endif
 
 #endif

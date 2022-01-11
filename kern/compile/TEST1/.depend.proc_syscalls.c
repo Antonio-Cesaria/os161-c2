@@ -4,7 +4,7 @@ proc_syscalls.o: ../../syscall/proc_syscalls.c ../../include/types.h \
  ../../include/kern/errno.h ../../include/clock.h \
  ../../include/kern/time.h ../../include/copyinout.h \
  ../../include/syscall.h ../../include/cdefs.h opt-syscalls.h opt-fork.h \
- opt-file.h ../../include/stat.h ../../include/kern/stat.h \
+ opt-file.h opt-c2.h ../../include/stat.h ../../include/kern/stat.h \
  ../../include/kern/stattypes.h ../../include/lib.h opt-noasserts.h \
  ../../include/proc.h ../../include/spinlock.h \
  includelinks/machine/spinlock.h ../../include/limits.h \

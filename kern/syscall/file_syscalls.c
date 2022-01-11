@@ -33,13 +33,7 @@
 #define USE_KERNEL_BUFFER 0
 
 /* system open file table */
-/*
-struct openfile {
-  struct vnode *vn;
-  off_t offset;	
-  unsigned int countRef;
-};
-*/
+
 
 struct openfile systemFileTable[SYSTEM_OPEN_MAX];
 
@@ -89,22 +83,33 @@ file_write(int fd, userptr_t buf_ptr, size_t size) {
   struct openfile *of;
   void *kbuf;
 
-  if (fd<0||fd>OPEN_MAX) return -1;
+  if (fd<0||fd>OPEN_MAX) {
+    lock_release(curproc->fileTable[fd]->filelock);
+    return -1;
+  }
   of = curproc->fileTable[fd];
-  if (of==NULL) return -1;
+  if (of==NULL) {
+    lock_release(curproc->fileTable[fd]->filelock);
+    return -1;
+  }
   vn = of->vn;
-  if (vn==NULL) return -1;
+  if (vn==NULL) {
+    lock_release(curproc->fileTable[fd]->filelock); 
+    return -1;  
+  } 
 
   kbuf = kmalloc(size);
   copyin(buf_ptr,kbuf,size);
   uio_kinit(&iov, &ku, kbuf, size, of->offset, UIO_WRITE);
   result = VOP_WRITE(vn, &ku);
   if (result) {
+    lock_release(curproc->fileTable[fd]->filelock);
     return result;
   }
   kfree(kbuf);
   of->offset = ku.uio_offset;
   nwrite = size - ku.uio_resid;
+  lock_release(curproc->fileTable[fd]->filelock);
   return (nwrite);
 }
 
@@ -145,18 +150,21 @@ file_read(int fd, userptr_t buf_ptr, size_t size) {
 }
 
 static int
-file_write(int fd, userptr_t buf_ptr, size_t size) {
+file_write(int fd, userptr_t buf_ptr, size_t size, int* err) {
   struct iovec iov;
   struct uio u;
-  int result, nwrite;
+  int nwrite;
   struct vnode *vn;
   struct openfile *of;
 
-  if (fd<0||fd>OPEN_MAX) return -1;
   of = curproc->fileTable[fd];
-  if (of==NULL) return -1;
   vn = of->vn;
-  if (vn==NULL) return -1;
+
+  if (vn==NULL) {
+    lock_release(curproc->fileTable[fd]->filelock);
+    *err = EBADF; 
+    return -1;  
+  }
 
   iov.iov_ubase = buf_ptr;
   iov.iov_len = size;
@@ -169,12 +177,15 @@ file_write(int fd, userptr_t buf_ptr, size_t size) {
   u.uio_rw = UIO_WRITE;
   u.uio_space = curproc->p_addrspace;
 
-  result = VOP_WRITE(vn, &u);
-  if (result) {
-    return result;
+  *err = VOP_WRITE(vn, &u);
+  if (*err) {
+    lock_release(curproc->fileTable[fd]->filelock); 
+    return -1;
   }
   of->offset = u.uio_offset;
   nwrite = size - u.uio_resid;
+
+  lock_release(curproc->fileTable[fd]->filelock); 
   return (nwrite);
 }
 
@@ -217,6 +228,7 @@ sys_open(userptr_t path, int openflags, mode_t mode, int *errp)
       of->offset = 0; // TODO: handle offset with append
       of->flags = openflags;
       of->countRef = 1;
+      of->filelock = lock_create((const char*)path);
       break;
     }
   }
@@ -243,14 +255,20 @@ sys_open(userptr_t path, int openflags, mode_t mode, int *errp)
  * file system calls for open/close
  */
 int
-sys_close(int fd)
+sys_close(int fd, int *err)
 {
   struct openfile *of=NULL; 
   struct vnode *vn;
 
-  if (fd<0||fd>OPEN_MAX) return -1;
+  if (fd<0||fd >= OPEN_MAX) {
+    *err = EBADF;
+    return -1;
+  }
   of = curproc->fileTable[fd];
-  if (of==NULL) return -1;
+  if (of==NULL) {
+    *err = EBADF;
+    return -1;
+  }
   curproc->fileTable[fd] = NULL;
 
   if (--of->countRef > 0) return 0; // just decrement ref cnt
@@ -289,6 +307,7 @@ sys_write(int fd, userptr_t buf_ptr, size_t size, int *err)
     *err = EFAULT;
     return -1;
   }
+
   
   in = kmalloc(sizeof(void*));
   if(in == NULL){
@@ -307,7 +326,7 @@ sys_write(int fd, userptr_t buf_ptr, size_t size, int *err)
       *err = EBADF;
     return -1;
     }
-
+    lock_acquire(curproc->fileTable[fd]->filelock);  
     if( (curproc->fileTable[fd]->flags & 0x01) == O_RDONLY){
       if( (curproc->fileTable[fd]->flags & 0x02) != 2){
         *err = EBADF;
@@ -315,7 +334,8 @@ sys_write(int fd, userptr_t buf_ptr, size_t size, int *err)
       }
     }
       
-    return file_write(fd, buf_ptr, size);
+    return file_write(fd, buf_ptr, size, err);
+    
 #else
     kprintf("sys_write supported only to stdout\n");
     return -1;
@@ -328,7 +348,7 @@ sys_write(int fd, userptr_t buf_ptr, size_t size, int *err)
     }
   }
   else
-    return file_write(fd, buf_ptr, size);
+    return file_write(fd, buf_ptr, size, err);
   return (int)size;
 }
 
@@ -407,7 +427,7 @@ int sys_dup2(int oldfd,int newfd, int *retval){
 
     struct openfile * old_open;
     struct openfile * new_open;
-    //struct lock *dup2_lock;
+
     struct proc *p = curproc;
     (void)p;
 
@@ -421,21 +441,19 @@ int sys_dup2(int oldfd,int newfd, int *retval){
         return EBADF;
       
 
-    //dup2_lock = lock_create("dup2_lock");
-    //lock_acquire(dup2_lock);
-
+    
     old_open=curproc->fileTable[oldfd];
 
     if(old_open==NULL)
         return EBADF;
 
     if(curproc->fileTable[newfd]!=NULL){
+    
     //chiudo il newfd
     curproc->fileTable[newfd]->countRef--;
     VOP_DECREF(curproc->fileTable[newfd]->vn);
 
-    //controllo che sia l'ultimo ???
-
+    
     }
 
     new_open=old_open;
@@ -446,8 +464,6 @@ int sys_dup2(int oldfd,int newfd, int *retval){
 
 
     *retval=newfd;
-
-    //lock_release(dup2_lock);
 
     return 0;
 
@@ -475,11 +491,11 @@ int file_get(struct proc *p, int fd, struct openfile **f ) {
 }
 
 int sys_lseek( int fd, off_t offset, int whence, int64_t *retval ) {
-  struct proc        *p = NULL;
-  struct openfile        *f = NULL;
-  int            err;
-  struct stat        st;
-  off_t            new_offset;
+  struct proc *p = NULL;
+  struct openfile *f = NULL;
+  int err;
+  struct stat st;
+  off_t new_offset;
 
   KASSERT( curthread != NULL );
   KASSERT( curthread->t_proc != NULL );
@@ -506,7 +522,6 @@ int sys_lseek( int fd, off_t offset, int whence, int64_t *retval ) {
       //the size of the file, and set the offset to be that size.
       err = VOP_STAT( f->vn, &st );
       if( err ) {
-        //F_UNLOCK( f );
         return err;
       }
 
@@ -514,20 +529,16 @@ int sys_lseek( int fd, off_t offset, int whence, int64_t *retval ) {
       new_offset = st.st_size + offset;
       break;
     default:
-      //F_UNLOCK( f );
       return EINVAL;
   }
 
-  //use VOP_TRYSEEK to verify whether the desired
-  //seeking location is proper.
-  //da gestire meglio
   if(VOP_ISSEEKABLE( f->vn))
   {
-
     //adjust the seek.
+    lock_acquire(f->filelock);
     f->offset = new_offset;
     *retval = new_offset;
-    //F_UNLOCK( f );
+    lock_release(f->filelock);
     return 0;
   }
   return ESPIPE;

@@ -452,3 +452,6 @@ defoption fork
 defoption waitpid 
 defoption file
 
+# C2 assignment
+
+defoption c2

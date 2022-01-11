@@ -11,5 +11,5 @@ runprogram.o: ../../syscall/runprogram.c ../../include/types.h \
  includelinks/kern/machine/setjmp.h ../../include/addrspace.h \
  ../../include/vm.h includelinks/machine/vm.h opt-dumbvm.h \
  ../../include/vfs.h ../../include/syscall.h opt-syscalls.h opt-fork.h \
- ../../include/stat.h ../../include/kern/stat.h \
+ opt-c2.h ../../include/stat.h ../../include/kern/stat.h \
  ../../include/kern/stattypes.h ../../include/test.h

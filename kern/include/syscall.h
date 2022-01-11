@@ -35,6 +35,7 @@
 #include "opt-syscalls.h"
 #include "opt-fork.h"
 #include "opt-file.h"
+#include "opt-c2.h"
 #include <stat.h>
 
 struct trapframe; /* from <machine/trapframe.h> */
@@ -73,12 +74,16 @@ struct openfile {
   off_t offset;	
   int flags;
   unsigned int countRef;
+  struct lock* filelock;
 };
+
 void openfileIncrRefCount(struct openfile *of);
 int sys_open(userptr_t path, int openflags, mode_t mode, int *errp);
-int sys_close(int fd);
+int sys_close(int fd, int *err);
 int sys_lseek( int fd, off_t offset, int whence, int64_t *retval );
 #endif
+
+#if OPT_C2
 int sys_write(int fd, userptr_t buf_ptr, size_t size, int *err);
 int sys_read(int fd, userptr_t buf_ptr, size_t size, int *err);
 void sys__exit(int status);
@@ -87,6 +92,7 @@ pid_t sys_getpid(void);
 pid_t sys_getpid2(struct proc* p);
 #if OPT_FORK
 int sys_fork(struct trapframe *ctf, pid_t *retval);
+#endif
 int sys_execv(char *progname, char **args, int *err);
 int sys_fstat (int fd, struct stat *buf);
 int sys___getcwd(userptr_t buf, size_t size, int *retval);

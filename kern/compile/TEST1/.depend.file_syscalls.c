@@ -3,7 +3,7 @@ file_syscalls.o: ../../syscall/file_syscalls.c ../../include/types.h \
  includelinks/machine/types.h ../../include/kern/unistd.h \
  ../../include/kern/errno.h ../../include/clock.h \
  ../../include/kern/time.h ../../include/syscall.h ../../include/cdefs.h \
- opt-syscalls.h opt-fork.h opt-file.h ../../include/stat.h \
+ opt-syscalls.h opt-fork.h opt-file.h opt-c2.h ../../include/stat.h \
  ../../include/kern/stat.h ../../include/kern/stattypes.h \
  ../../include/current.h includelinks/machine/current.h \
  ../../include/thread.h ../../include/array.h ../../include/lib.h \

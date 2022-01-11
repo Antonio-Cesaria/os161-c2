@@ -11,5 +11,5 @@ trap.o: ../../arch/mips/locore/trap.c ../../include/types.h \
  ../../include/setjmp.h includelinks/kern/machine/setjmp.h \
  ../../include/current.h includelinks/machine/current.h \
  ../../include/vm.h ../../include/mainbus.h ../../include/syscall.h \
- opt-syscalls.h opt-fork.h opt-file.h ../../include/stat.h \
+ opt-syscalls.h opt-fork.h opt-file.h opt-c2.h ../../include/stat.h \
  ../../include/kern/stat.h ../../include/kern/stattypes.h
