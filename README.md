@@ -5,8 +5,8 @@ implementazione sys_execv
 
 Assignments C2 
 Antonio Cesaria s290261 Lorenzo Cesetti s286896 Davide Casalegno s280103
-Shell
-Process Handling:
+# Shell
+## Process Handling:
   
     .PROCESS STRUCTURE
 Abbiamo aggiunto alla struct process i seguenti campi:
@@ -43,7 +43,7 @@ Risulta essere di fatto un wrapper della funzione di più basso livello "proc_wa
 .FILE HANDLING
 
 - lseek(), 
--int sys_lseek(int fd, off_t pos, int whence, off_t *new_pos);
+- int sys_lseek(int fd, off_t pos, int whence, off_t *new_pos);
 
 La syscall permette di implementare kernel-level la funzione lseek(). Se il riposizionamento va a buon fine, viene ritornato il valore 0 e la nuova posizione nel file è indicata in new_pos. Altrimenti viene ritornato un codice di errore e new_pos rimane invariato.
 
