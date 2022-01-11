@@ -16,12 +16,6 @@ Ci servono per una corretta gestione dei file aperti di un processo e per l'impl
 
 #### Syscalls()
 
-- ```int sys_execv(char *progname,char ** args, int *err)```
-
-La syscall si basa su due altre funzioni di supporto: copyin_args, copyout_args. La prima permette di copiare gli argomenti della sys_execv da spazio user a spazio kernel mentre la seconda si occupa di trasferire gli argomenti da spazio kernel al nuovo spazio di indirizzamento del processo. 
-Copyout_args prevede inoltre il riempimento e l'allineamento dello stack con gli argomenti da passare a enter_new_process. 
-
-
 - ```int sys__getcwd(userptr_t buf, size_t size,int*retval)```
 - ```int sys_chdir(userptr_t dir)```
 
@@ -63,6 +57,14 @@ La syscall permette l'implementazione lato kernel della funzione dup2. Se il cam
 - ```int sys_write(int fd, userptr_t buf_ptr, size_t size, int *err)```
 
 Syscalls che permettono di leggere e scrivere sia da/su console che da/su file. Quando i file descriptor passati sono quelli relativi a operazioni su console, vengono invocate le funzioni standard per scrittura/lettura su/da console.
+
+
+### int sys_execv(char *progname,char ** args, int *err)
+
+Parte centrale dell'assignment. La funzione si occupa di implementare kernel-level la syscall execv.
+La syscall si basa su due altre funzioni di supporto: copyin_args, copyout_args. La prima permette di copiare gli argomenti della sys_execv da spazio user a spazio kernel mentre la seconda si occupa di trasferire gli argomenti da spazio kernel al nuovo spazio di indirizzamento del processo. 
+Copyout_args prevede inoltre il riempimento e l'allineamento dello stack con gli argomenti da passare a enter_new_process. 
+
 
 ### Suddivisione carico di lavoro
 Le syscall fork, execv, waitipid, exit, open, close, read e write sono state realizzate in collaborazione in quanto parte di esse erano già state realizzate durante il corso ed altre come la execv richiedevano (dal nostro punto di vista) maggiore attenzione e collaborazione in quanto centrali per lo sviluppo del progetto.
