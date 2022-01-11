@@ -16,12 +16,6 @@ Ci servono per una corretta gestione dei file aperti di un processo e per l'impl
 
 #### Syscalls()
 
-- ```int sys__getcwd(userptr_t buf, size_t size,int*retval)```
-- ```int sys_chdir(userptr_t dir)```
-
-Funzioni che permettono la navigazione all'interno del FileSystem. Da specificare che necessitano di un FileSystem sottostante più elaborato di sfs per un effettivo funzionamento.
-
-
 - ```int sys_fork(struct trapframe *ctf, pid_t *retval)```
  
 Permette la creazione di un processo figlio a partire da una copia identica dell'address space del processo padre. Abbiamo gestito questa copia identica attraverso funzioni  di copia dell'address space e della file table.
@@ -33,22 +27,25 @@ Aggiungendo il campo pid_t p_ppid alla struct proc si mantiene il collegamento t
 
 Risulta essere di fatto un wrapper della funzione di più basso livello "proc_wait()"  e si occupa dell'attesa della terminazione di  un processo figlio. Abbiamo inoltre inserito una serie di controlli dedicati alla gestione degli errori. Permette inoltre di  recuperare lo stato di uscita del figlio atteso. Tale stato di uscita viene specificato dal figlio grazie alla sys_exit(). E' stato necessario inserire _MKWAIT_EXIT(return_status); in proc_wait() per gestire lo stato di ritorno del figlio (i 30 bit alti del valore di ritorno)
 
+- ```int sys__getcwd(userptr_t buf, size_t size,int*retval)```
+- ```int sys_chdir(userptr_t dir)```
 
+Funzioni che permettono la navigazione all'interno del FileSystem. Al loro interno vengono fatti opportuni controlli di errore prima di chiamare le rispettive operazioni di vfs (vfs_getcwd, vfs_setcurdir). 
+Per poter utilizzare in maniera concreta queste syscall è necessaria la presenza di un FileSystem sottostante più elaborato (non parte di questo assignment)di emu-sfs (che non permette la creazione e la gestione di sottocartelle). Di conseguenza nel nostro progetto l'effetto che si avrà dall'esecuzione di queste syscall sarà un'esecuzione senza errori ma senza effetti tangibili (chdir termina correttamente ma senza effetto, get_cwd restituisce sempre la radice del filesystem).
 
 ### FILE HANDLING
  
-- ```int sys_lseek(int fd, off_t pos, int whence, off_t *new_pos)```
+- ```int sys_lseek( int fd, off_t offset, int whence, int64_t *retval )```
 
-La syscall permette di implementare kernel-level la funzione lseek(). Se il riposizionamento va a buon fine, viene ritornato il valore 0 e la nuova posizione nel file è indicata in new_pos. Altrimenti viene ritornato un codice di errore e new_pos rimane invariato.
+La syscall permette di implementare kernel-level la funzione lseek(). Se il riposizionamento va a buon fine, viene ritornato il valore 0 e la nuova posizione nel file è indicata in pos. Altrimenti viene ritornato un codice di errore e new_pos rimane invariato. La particolarità di questa syscall è che deve essere in grado di saper gestire correttamente valori a 64-bit in quanto sia offset che retval sono interi su 64-bit. Per gestire ciò bisogna tenere ben presente in quali registri è presente la variabile offset ($a2:$a3) e dove scrivere il valore di ritorno ($v0:$v1). Per facilitare queste operazioni sono state utilizzate delle semplici macro (MAKE_64BIT, GET_LO,GET_HI)
 
 
 - ```int sys_dup2(int oldfd, int newfd)```
 
 La syscall permette l'implementazione lato kernel della funzione dup2. Se il cambiamento è corretto  viene ritornato 0, altrimenti viene ritornato un codice di errore. L'implementazione di tale sys_call() permette alla shell di sfruttare i ridirezionamenti qualora questi siano possibili.
 
-
-- ```int sys_close(int fd)```
 - ```int sys_open(userptr_t path, int openflags, mode_t mode, int *errp)```
+- ```int sys_close(int fd)```
  
  Syscalls che permettono l'apertura e la chiusura di un file da parte di un processo. I file aperti di un processo 
  sono memorizzati nella relativa file table (singola per ogni processo). La open effettua una scansione lineare per associare un file descriptor libero (indice nella file table)  ad un file appena aperto. La close effettua le operazioni duali cancellando le relative entry nella file table dei file chiusi. 
@@ -59,19 +56,19 @@ La syscall permette l'implementazione lato kernel della funzione dup2. Se il cam
 Syscalls che permettono di leggere e scrivere sia da/su console che da/su file. Quando i file descriptor passati sono quelli relativi a operazioni su console, vengono invocate le funzioni standard per scrittura/lettura su/da console.
 
 
-### int sys_execv(char *progname,char **args, int *err)
+### EXECV
 
 Parte centrale dell'assignment. La syscall si occupa di implementare kernel-level la funzione execv.
 La funzione inizialmente controlla che gli argomenti siano non nulli (progname e args). Successivamente grazie all'ausilio della funzione int copyin_args(...) vengono copiati gli argomenti da spazio di indirizzamento user a kernel.
 
-#### int copyin_args(char ***args, char **uargs, int *argc)
+- ``` int copyin_args(char ***args, char **uargs, int *argc) ```
 
 Questa funzione di supporto utilizza internamente copyin(...) per controllare la validità degli indirizzi e per contare il numero degli argomenti (argc). copyinstr() viene invece utilizzata per copiare effettivamente gli argomenti in un vettore di stringhe (di lunghezza ARG_MAX) allocato dinamicamente di lunghezza argc.
 
 
 Viene copiato il progrname nello spazio kernel (anche se già presente negli argomenti). Dopodichè viene salvato l'address space corrente e viene aperto l'eseguibile (se presente) del nuovo programma da eseguire. Viene creato un nuovo spazio di indirizzamento relativo al nuovo processo che viene settato come quello attuale per il processo corrente, dove viene caricato il file elf aperto precedentemente mendiante la load_elf. In seguito viene creato anche lo stack per questo nuovo as dove verranno caricati gli argomenti precedentemente salvati nello spazio kernel. Il caricamento di questi argomenti è effettuato tramite la funzione copyout_args().
 
-#### int copyout_args(char** argv, vaddr_t *stackptr, int argc)
+- ``` int copyout_args(char** argv, vaddr_t *stackptr, int argc) ```
 
 Questa funzione di supporto si occupa del "corretto" caricamento degli argomenti nello stack dell'as appena creato. Per corretto si intende il rispetto del giusto layout (ordinamento e allinamento) dello stack, come mostrato in figura.
 
