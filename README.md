@@ -59,10 +59,25 @@ La syscall permette l'implementazione lato kernel della funzione dup2. Se il cam
 Syscalls che permettono di leggere e scrivere sia da/su console che da/su file. Quando i file descriptor passati sono quelli relativi a operazioni su console, vengono invocate le funzioni standard per scrittura/lettura su/da console.
 
 
-### int sys_execv(char *progname,char ** args, int *err)
+### int sys_execv(char *progname,char **args, int *err)
 
-Parte centrale dell'assignment. La funzione si occupa di implementare kernel-level la syscall execv.
-La syscall si basa su due altre funzioni di supporto: copyin_args, copyout_args. La prima permette di copiare gli argomenti della sys_execv da spazio user a spazio kernel mentre la seconda si occupa di trasferire gli argomenti da spazio kernel al nuovo spazio di indirizzamento del processo. 
+Parte centrale dell'assignment. La syscall si occupa di implementare kernel-level la funzione execv.
+La funzione inizialmente controlla che gli argomenti siano non nulli (progname e args). Successivamente grazie all'ausilio della funzione int copyin_args(...) vengono copiati gli argomenti da spazio di indirizzamento user a kernel.
+
+#### int copyin_args(char ***args, char **uargs, int *argc)
+
+Questa funzione di supporto utilizza internamente copyin(...) per controllare la validità degli indirizzi e per contare il numero degli argomenti (argc). copyinstr() viene invece utilizzata per copiare effettivamente gli argomenti in un vettore di stringhe (di lunghezza ARG_MAX) allocato dinamicamente di lunghezza argc.
+
+
+Viene copiato il progrname nello spazio kernel (anche se già presente negli argomenti). Dopodichè viene salvato l'address space corrente e viene aperto l'eseguibile (se presente) del nuovo programma da eseguire. Viene creato un nuovo spazio di indirizzamento relativo al nuovo processo che viene settato come quello attuale per il processo corrente, dove viene caricato il file elf aperto precedentemente mendiante la load_elf. In seguito viene creato anche lo stack per questo nuovo as dove verranno caricati gli argomenti precedentemente salvati nello spazio kernel. Il caricamento di questi argomenti è effettuato tramite la funzione copyout_args().
+
+#### int copyout_args(char** argv, vaddr_t *stackptr, int argc)
+
+Questa funzione di supporto si occupa del "corretto" caricamento degli argomenti nello stack dell'as appena creato. Per corretto si intende il rispetto del giusto layout (ordinamento e allinamento) dello stack.
+
+
+La syscall si basa su due altre funzioni di supporto: copyin_args, copyout_args.
+La prima permette di copiare gli argomenti della sys_execv da spazio user a spazio kernel mentre la seconda si occupa di trasferire gli argomenti da spazio kernel al nuovo spazio di indirizzamento del processo. 
 Copyout_args prevede inoltre il riempimento e l'allineamento dello stack con gli argomenti da passare a enter_new_process. 
 
 
