@@ -3,10 +3,10 @@ Progetto C2 per il corso "Programmazione di Sistema"
 implementazione sys_execv
 
 
-Assignments C2 
+# Shell Assignment C2 
 Antonio Cesaria s290261 Lorenzo Cesetti s286896 Davide Casalegno s280103
-# Shell
-## Process Handling:
+
+## PROCESS HANDLING:
   
     .PROCESS STRUCTURE
 Abbiamo aggiunto alla struct process i seguenti campi:
@@ -40,7 +40,7 @@ Risulta essere di fatto un wrapper della funzione di più basso livello "proc_wa
 
 
 
-.FILE HANDLING
+## FILE HANDLING
 
 - lseek(), 
 - int sys_lseek(int fd, off_t pos, int whence, off_t *new_pos);
