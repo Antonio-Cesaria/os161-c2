@@ -253,6 +253,7 @@ int copyin_args(char*** args, char** uargs, int *argc){
   return 0;
 }
 
+//Substituted with prepare_user_stack in copyinout.h
 int copyout_args(char** argv, vaddr_t *stackptr, int argc){
   /*
   dev notes
@@ -276,7 +277,7 @@ int copyout_args(char** argv, vaddr_t *stackptr, int argc){
     size += (strlen(argv[i])+1); //+1 for \0 string terminator
     padding[i] = 4 - ( (strlen(argv[i]) % 4 )+1); //computing necessary padding
     size += padding[i]; 
-    size += sizeof(argv[i]); //for string pointer
+    size += sizeof(char*); //for string pointer
   }
   size += sizeof(char*); //NULL pointer to end args list
   
@@ -459,7 +460,12 @@ int sys_execv(char* progname, char** args, int *err){
 	}
 
   /* copying program arguments back from kernel space to user space (new address space) */
-  *err = copyout_args(argv, &stackptr, argc);
+  //*err = copyout_args(argv, &stackptr, argc);
+  *err = prepare_user_stack((userptr_t*)&stackptr, argv, argc); 
+  //copyout(k_prgname, (userptr_t)stackptr, sizeof(char)*strlen(progname)+1);
+  //stackptr+=sizeof(k_prgname);
+
+
   if(*err){
     kfree(k_prgname);
 		/* p_addrspace will go away when curproc is destroyed */
@@ -477,7 +483,6 @@ int sys_execv(char* progname, char** args, int *err){
   kfree(k_prgname);
   strcpy(curproc->p_name, argv[0]);
   KASSERT(stackptr % 4 == 0);
-  
   /* launch the new process */
   enter_new_process(argc /*argc*/, (userptr_t) stackptr/*userspace addr of argv*/,
 			  NULL /*userspace addr of environment*/,

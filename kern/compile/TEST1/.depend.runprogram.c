@@ -12,4 +12,5 @@ runprogram.o: ../../syscall/runprogram.c ../../include/types.h \
  ../../include/vm.h includelinks/machine/vm.h opt-dumbvm.h \
  ../../include/vfs.h ../../include/syscall.h opt-syscalls.h opt-fork.h \
  opt-c2.h ../../include/stat.h ../../include/kern/stat.h \
- ../../include/kern/stattypes.h ../../include/test.h
+ ../../include/kern/stattypes.h ../../include/test.h \
+ ../../include/copyinout.h

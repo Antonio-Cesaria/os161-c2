@@ -45,6 +45,9 @@
 #include <syscall.h>
 #include <test.h>
 
+#include <copyinout.h>
+
+
 /*
  * Load program "progname" and start running it in usermode.
  * Does not return except on error.
@@ -96,9 +99,35 @@ runprogram(char *progname)
 		/* p_addrspace will go away when curproc is destroyed */
 		return result;
 	}
+	/*
+	size_t actual = 0;
+	
+	progname = str_align_32(progname);
+	int len = strlen(progname);
 
+	//PUSH progname
+	stackptr -= len+1;
+	userptr_t argbase = (userptr_t)stackptr;
+	int err = copyoutstr(progname, (userptr_t)stackptr, sizeof(char)*len+1, &actual);
+	
+	/PUSH argv[0]+NULL (?)/
+	stackptr -= 2*sizeof(userptr_t); //argc+1
+	
+	userptr_t userargv = (userptr_t)stackptr;
+	copyout(&argbase, userargv, sizeof(userptr_t));
+	userargv += sizeof(userptr_t);  
+	argbase = NULL;
+	copyout(&argbase, userargv, sizeof(userptr_t));
+	*/
+	
+	char** argv = kmalloc(sizeof(char*));
+	int argc = 1;
+	argv[0] = kmalloc(sizeof(char)*strlen(progname)+1);
+	strcpy(argv[0], progname);
+	int err = prepare_user_stack((userptr_t *)&stackptr, argv, argc);
+	if(err) panic("Not aligned:(");
 	/* Warp to user mode. */
-	enter_new_process(0 /*argc*/, NULL /*userspace addr of argv*/,
+	enter_new_process(1 /*argc*/, (userptr_t)stackptr /*userspace addr of argv*/,
 			  NULL /*userspace addr of environment*/,
 			  stackptr, entrypoint);
 

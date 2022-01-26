@@ -65,6 +65,7 @@ file_read(int fd, userptr_t buf_ptr, size_t size) {
   uio_kinit(&iov, &ku, kbuf, size, of->offset, UIO_READ);
   result = VOP_READ(vn, &ku);
   if (result) {
+    kfree(kbuf);
     return result;
   }
   of->offset = ku.uio_offset;
@@ -104,6 +105,7 @@ file_write(int fd, userptr_t buf_ptr, size_t size) {
   result = VOP_WRITE(vn, &ku);
   if (result) {
     lock_release(curproc->fileTable[fd]->filelock);
+    kfree(kbuf);
     return result;
   }
   kfree(kbuf);

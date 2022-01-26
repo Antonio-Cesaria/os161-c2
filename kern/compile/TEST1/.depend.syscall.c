@@ -11,4 +11,5 @@ syscall.o: ../../arch/mips/syscall/syscall.c ../../include/types.h \
  ../../include/vm.h includelinks/machine/vm.h opt-dumbvm.h \
  ../../include/syscall.h opt-syscalls.h opt-fork.h opt-file.h opt-c2.h \
  ../../include/stat.h ../../include/kern/stat.h \
- ../../include/kern/stattypes.h ../../include/copyinout.h
+ ../../include/kern/stattypes.h ../../include/copyinout.h \
+ ../../include/synch.h opt-locksem.h ../../include/wchan.h

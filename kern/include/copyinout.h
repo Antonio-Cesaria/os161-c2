@@ -69,5 +69,10 @@ int copyout(const void *src, userptr_t userdest, size_t len);
 int copyinstr(const_userptr_t usersrc, char *dest, size_t len, size_t *got);
 int copyoutstr(const char *src, userptr_t userdest, size_t len, size_t *got);
 
+char *strncpy_align32(char* dst, const char* src, size_t len);
+
+int prepare_user_stack(userptr_t *stack_ptr, char** argv, int argc);
+int str_padding_32(char length);
+
 
 #endif /* _COPYINOUT_H_ */

@@ -35,7 +35,6 @@
 #include <current.h>
 #include <vm.h>
 #include <copyinout.h>
-
 /*
  * User/kernel memory copying functions.
  *
@@ -323,4 +322,97 @@ copyoutstr(const char *src, userptr_t userdest, size_t len, size_t *actual)
 
 	curthread->t_machdep.tm_badfaultfunc = NULL;
 	return result;
+}
+
+
+int str_padding_32(char length){
+	return length + 4-(length+1)%4;
+}
+
+/*Function that return the same string but padded in order to be aligned on 32bit. */
+char *strncpy_align32(char* dst, const char* src, size_t len){
+	int i, len_old = strlen(src);
+	int padding = 4-(len+1)%4;
+	strcpy(dst, src);
+	if(padding == 0) return dst;
+	for(i=len_old+1; i<=(int)len;i++){
+		dst[i] = 0;
+	}
+	return dst;
+}
+
+
+/*
+int prepare_user_stack(userptr_t *stack_ptr, char** argv, int argc)
+function that permits to write the argv arguments from kernel space into the user space stack
+
+TODO: kfree + error handling
+*/
+int prepare_user_stack(userptr_t *stack_ptr, char** argv, int argc){
+    int i, err, size = 0;
+	size_t actual=0;
+	int* len = kmalloc(argc*sizeof(char));
+    userptr_t stack = *stack_ptr;
+    
+    /*padding argv => TODO: kfree*/
+    char **padded_argv = kmalloc(argc*sizeof(char*));
+    for(i=0; i<argc;i++){
+		len[i] = str_padding_32(strlen(argv[i])); //could be a macro(?)
+		KASSERT((len[i]+1)%4 == 0);
+		padded_argv[i] = kmalloc((len[i]+1)*sizeof(char));
+		//if padded_argv[i] == NULL
+        strncpy_align32(padded_argv[i], argv[i], len[i]);
+		size += len[i]+1;
+    }
+
+    /*PUSH strings first*/
+    stack-= size;
+    userptr_t argbase = (userptr_t)stack;
+    for(i=0; i<argc;i++){
+        int err = copyoutstr(padded_argv[i], (userptr_t)stack, sizeof(char)*len[i]+1, &actual);
+        if (err) {
+			kfree(len);
+			for(i = 0; i < argc; i++ )
+				kfree(padded_argv[i]);
+			kfree(padded_argv);
+			return err;
+		}
+        stack += len[i]+1;
+    }
+
+	/*now PUSH argv[i]s pointer + NULL (?)*/
+	stack = argbase-(argc+1)*sizeof(userptr_t); //argc+1
+	userptr_t userargv = (userptr_t)stack;
+	
+    for(i=0; i<argc; i++){
+        err = copyout(&argbase, userargv, sizeof(userptr_t));
+		if (err) {
+			kfree(len);
+			for(i = 0; i < argc; i++ )
+				kfree(padded_argv[i]);
+			kfree(padded_argv);
+			return err;
+		}
+        argbase += len[i]+1;
+        userargv += sizeof(userptr_t);
+    }
+
+	argbase = NULL;
+	err = copyout(&argbase, userargv, sizeof(userptr_t));
+	if (err) {
+		kfree(len);
+		for(i = 0; i < argc; i++ )
+			kfree(padded_argv[i]);
+		kfree(padded_argv);
+		return err;
+	}
+    
+    *stack_ptr = stack;
+	kfree(len);
+	for(i = 0; i < argc; i++ )
+		kfree(padded_argv[i]);
+	kfree(padded_argv);
+	
+    return 0;
+
 }
