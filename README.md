@@ -2,6 +2,10 @@
 # Shell Assignment C2 
 Antonio Cesaria s290261 Lorenzo Cesetti s286896 Davide Casalegno s280103
 
+## SYSTEM CONFIGURATION:
+
+La configurazione utilizzata è stata quella di definire 2 cpu e 8192KB di RAM, in quanto la memoria di default non permetteva l'esecuzione corretta della fork() che risultava troppo impegnativa per 512KB (Si pensi che uno stack in OS161 occupa 18pagine di default (72 KB).
+
 ## PROCESS HANDLING:
 #### Process Structure
 
@@ -68,9 +72,9 @@ Questa funzione di supporto utilizza internamente copyin(...) per controllare la
 
 Viene copiato il progrname nello spazio kernel (anche se già presente negli argomenti). Dopodichè viene salvato l'address space corrente e viene aperto l'eseguibile (se presente) del nuovo programma da eseguire. Viene creato un nuovo spazio di indirizzamento relativo al nuovo processo che viene settato come quello attuale per il processo corrente, dove viene caricato il file elf aperto precedentemente mendiante la load_elf. In seguito viene creato anche lo stack per questo nuovo as dove verranno caricati gli argomenti precedentemente salvati nello spazio kernel. Il caricamento di questi argomenti è effettuato tramite la funzione copyout_args().
 
-- ``` int copyout_args(char** argv, vaddr_t *stackptr, int argc) ```
+- ``` int prepare_user_stack(userptr_t *stack_ptr, char** argv, int argc) ```
 
-Questa funzione di supporto si occupa del "corretto" caricamento degli argomenti nello stack dell'as appena creato. Per corretto si intende il rispetto del giusto layout (ordinamento e allinamento) dello stack, come mostrato in figura.
+Questa funzione di supporto si occupa del "corretto" caricamento degli argomenti nello stack dell'as appena creato. Per corretto si intende il rispetto del giusto layout (ordinamento e allinamento) dello stack, come mostrato in figura. È utilizzata sia da sys_execv che da runprogram.
 
 ![stackptr](/stackptr.png)
 
